@@ -345,13 +345,14 @@ f4_wgd() {
     record F4 FAIL "wgd.sh failed"
     return
   }
-  ssh_board 'cat /sys/firmware/fdt' >"$OUT/f4.dtb" 2>/dev/null || true
+  # /sys/firmware/fdt is root-only. Keep stderr out of the binary.
+  board_sudo 'cat /sys/firmware/fdt' >"$OUT/f4.dtb" 2>"$OUT/f4-dtb.err" || true
   board_sudo 'cat /proc/interrupts' >"$OUT/f4-irq.txt" 2>&1 || true
   local dt=0 irq=0
   if [ -s "$OUT/f4.dtb" ] && "$ROOT/scripts/check_dtb_irqs.sh" "$OUT/f4.dtb" >"$OUT/f4-dtb.txt" 2>&1; then
     dt=1
   fi
-  if grep -E -q '30:|34:|35:|36:|31:|32:|62:|66:|67:|68:|63:|64:' "$OUT/f4-irq.txt"; then
+  if grep -E -q 'xilinx-dma|sdr|tx_intf|rx_intf|openofdm|xpu' "$OUT/f4-irq.txt"; then
     irq=1
   fi
   if grep -q 'wgd.sh failed' "$OUT/f4-wgd.txt"; then
@@ -606,7 +607,7 @@ f11() {
 }
 
 f12() {
-  board_sudo 'cd /home/analog/openwifi && ./sdrctl dev sdr0 get reg xpu 58; sleep 1; ./sdrctl dev sdr0 get reg xpu 58; old=$(./sdrctl dev sdr0 get reg drv_xpu 0 | awk "END{print \$NF}"); ./sdrctl dev sdr0 set reg drv_xpu 0 305419896; ./sdrctl dev sdr0 get reg drv_xpu 0; ./sdrctl dev sdr0 set reg drv_xpu 0 ${old:-0}' >"$OUT/f12.txt" 2>&1 || {
+  board_sudo 'cd /home/analog/openwifi && sdrctl dev sdr0 get reg xpu 58; sleep 1; sdrctl dev sdr0 get reg xpu 58; old=$(sdrctl dev sdr0 get reg drv_xpu 0 | awk "END{print \$NF}"); sdrctl dev sdr0 set reg drv_xpu 0 305419896; sdrctl dev sdr0 get reg drv_xpu 0; sdrctl dev sdr0 set reg drv_xpu 0 ${old:-0}' >"$OUT/f12.txt" 2>&1 || {
     record F12 FAIL "sdrctl failed"
     return
   }
@@ -622,7 +623,8 @@ f13() {
     record F13 FAIL "channel-access scripts failed"
     return
   }
-  if grep -q 'CW 1234' "$OUT/f13.txt" && grep -q 'LBT 1000' "$OUT/f13.txt"; then
+  # cw_max_min_cfg.sh prints 00001234. set_lbt_th.sh prints 000003e8 for 1000.
+  if grep -q '00001234' "$OUT/f13.txt" && grep -E -q 'LBT (1000|000003[eE]8)' "$OUT/f13.txt"; then
     record F13 PASS "cw, difs, nav, lbt written and restored"
   else
     record F13 FAIL "read-back mismatch"
@@ -630,7 +632,7 @@ f13() {
 }
 
 f14() {
-  board_sudo 'cd /home/analog/openwifi && ./slice_cfg.sh 0 66554433 10000 0 5000; echo START $(./sdrctl dev sdr0 get slice_start0); ./slice_cfg.sh 0 0 0 0 0' >"$OUT/f14.txt" 2>&1 || {
+  board_sudo 'cd /home/analog/openwifi && ./slice_cfg.sh 0 66554433 10000 0 5000; echo START $(sdrctl dev sdr0 get slice_start0); ./slice_cfg.sh 0 0 0 0 0' >"$OUT/f14.txt" 2>&1 || {
     record F14 FAIL "slice_cfg failed"
     return
   }
