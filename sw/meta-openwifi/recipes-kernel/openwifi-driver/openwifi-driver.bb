@@ -32,5 +32,8 @@ do_install() {
     done
 }
 
-RPROVIDES:${PN} += "kernel-module-sdr kernel-module-side-ch"
-FILES:${PN} += "${nonarch_base_libdir}/modules/${KERNEL_VERSION}/extra"
+# module.bbclass leaves PN empty on purpose. kernel-module-split appends one
+# package per .ko and adds those names to RDEPENDS:${PN}. A directory in
+# FILES:${PN} matches first and keeps the split packages empty, so they are
+# never written to the feed and rootfs cannot install the driver.
+# The unversioned kernel-module-* names are provided by the split packages.
