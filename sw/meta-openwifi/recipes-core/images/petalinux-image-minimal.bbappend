@@ -194,8 +194,8 @@ openwifi_p01_runtime() {
 			ln -sfn "${sbindir}/$t" "$dest/$t"
 		fi
 	done
-	# ${OPENWIFI_BOOT_SHA} is unused at runtime. Referencing it makes the
-	# rootfs task hash change after petalinux-package writes BOOT.BIN.
+	# ${OPENWIFI_BOOT_SHA} is unused at runtime. do_rootfs is a Python task,
+	# so this shell reference does not change its hash. The vardep below does.
 	echo "openwifi boot sha ${OPENWIFI_BOOT_SHA}" >/dev/null
 }
 
@@ -224,7 +224,10 @@ EOF
 ROOTFS_POSTPROCESS_COMMAND:append = " openwifi_write_build_info;"
 
 # Hash of the packaged boot files. "missing" until the image stage packages them.
+# do_rootfs must depend on this value. Otherwise a new BOOT.BIN or system.bit
+# is left out of the WIC and the image task is restored from sstate.
 OPENWIFI_BOOT_SHA = "${@openwifi_boot_sha(d)}"
+do_rootfs[vardeps] += "OPENWIFI_BOOT_SHA"
 
 def openwifi_boot_sha(d):
     import hashlib
