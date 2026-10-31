@@ -1,0 +1,8 @@
+/include/ "system-conf.dtsi"
+/include/ "openwifi.dtsi"
+/include/ "openwifi-adi-cleanup.dtsi"
+
+&gem0 {
+	mac-address = [00 0a 35 00 1e 53];
+	local-mac-address = [00 0a 35 00 1e 53];
+};

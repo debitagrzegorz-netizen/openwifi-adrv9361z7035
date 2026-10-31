@@ -1,0 +1,15 @@
+# OpenWiFi — eth0 DHCP only at boot
+auto lo
+iface lo inet loopback
+
+auto eth0
+iface eth0 inet dhcp
+	hostname openwifi
+	udhcpc_opts -t 10 -T 3 -A 5 -b
+
+allow-hotplug eth1
+iface eth1 inet dhcp
+	hostname openwifi
+
+iface wlan0 inet manual
+iface sdr0 inet manual

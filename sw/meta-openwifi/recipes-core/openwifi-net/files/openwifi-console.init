@@ -1,0 +1,19 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          openwifi-console
+# Required-Start:
+# Required-Stop:
+# Default-Start:     S
+# Default-Stop:
+# Short-Description: Fix ttyPS0 termios / getty for UART login
+### END INIT INFO
+
+case "$1" in
+  start)
+	/usr/sbin/openwifi-console.sh || true
+	;;
+  stop) ;;
+  restart|force-reload) $0 start ;;
+  *) echo "Usage: $0 {start|stop|restart}"; exit 1 ;;
+esac
+exit 0

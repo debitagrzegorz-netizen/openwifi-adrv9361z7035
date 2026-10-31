@@ -1,0 +1,2 @@
+# Packages are selected by sw/meta-openwifi recipes-core/images/
+# petalinux-image-minimal.bbappend. This fragment is intentionally empty.

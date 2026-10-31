@@ -1,0 +1,2 @@
+# udevadm info -a parent driver is sdr,sdr (comma is part of the driver name)
+SUBSYSTEM=="net", ACTION=="add", DRIVERS=="sdr,sdr", NAME="sdr0"

@@ -1,0 +1,61 @@
+/*
+ * Cleanup ADI board DTS nodes that do not match the OpenWiFi bitstream.
+ *
+ * Removed / disabled leftovers (not present or not used in OpenWiFi XSA):
+ *   - ADI axi-dmac @ 0x7c40_0000 / 0x7c42_0000 (kernel panic if probed)
+ *   - axi-sysid, mwipcore (ADI reference PL only)
+ *
+ * KEEP cf-ad9361-dds-core-lpc ENABLED:
+ *   SoftMAC openwifi/driver/sdr.c looks up platform device
+ *   "cf-ad9361-dds-core-lpc" and calls cf_axi_dds_datasel(..., DATA_SEL_DMA).
+ *   status="disabled" caused: bus_find_device ... failed / probe returned 19 (-ENODEV).
+ *   Strip ghost dmas only — DAC/DDS register space is part of axi_ad9361 @ 0x7902_4000.
+ */
+
+/* --- Ghost ADI AXI-DMAC (0x7c40xxxx) — not in OpenWiFi XSA --- */
+&cf_ad9361_adc_core_0 {
+	/delete-property/ dmas;
+	/delete-property/ dma-names;
+	/* Keep for RF digital interface @ 0x79020000 */
+	clocks = <&clkc 15>;
+	clock-names = "s_axi_aclk";
+	status = "okay";
+};
+
+&cf_ad9361_dac_core_0 {
+	/* SoftMAC requires this platform device name + IIO drvdata */
+	/delete-property/ dmas;
+	/delete-property/ dma-names;
+	/* Sample clock from ad9361-phy (clock index 13 = TX_SAMPL_CLK typical) */
+	clocks = <&adc0_ad9361 13>;
+	clock-names = "sampl_clk";
+	status = "okay";
+};
+
+/delete-node/ &rx_dma;
+/delete-node/ &tx_dma;
+
+&axi_sysid_0 {
+	status = "disabled";
+};
+
+&{/fpga-axi@0/mwipcore@43c00000} {
+	status = "disabled";
+};
+
+/*
+ * Leave axi_i2c0 on the ADI board DTS interrupt, SPI 58 (concat In14,
+ * axi_iic_main @ 0x41600000, LEVEL). The old override to SPI 33 treated
+ * SPI 58 as an OpenWiFi RX collision. That was the wrong "59 − n" map:
+ * SoftMAC RX is SPI 30, and SPI 33 is In4 (tied 0), which caused
+ * "xiic-i2c ... bus busy timeout". Do not add an interrupts property here.
+ */
+&axi_i2c0 {
+	clocks = <&clkc 15>;
+	clock-names = "s_axi_aclk";
+
+	/* OpenWiFi build does not use ADI board-monitor ADC on this bus. */
+	/delete-node/ ad7291-bob@2f;
+	/* Experimental cleanup: remove inherited carrier EEPROM probe on this image. */
+	/delete-node/ eeprom@50;
+};

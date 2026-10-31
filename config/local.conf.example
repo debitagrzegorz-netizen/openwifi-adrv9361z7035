@@ -1,0 +1,40 @@
+# Copy to config/local.conf. That file is gitignored.
+# Absolute paths belong only in the copy.
+
+# Xilinx 2025.1 prefix. It contains Vitis/ and PetaLinux/.
+TOOLS_ROOT=
+
+# openwifi checkout that contains OPENWIFI_REV. build.sh clones it into build/src.
+OPENWIFI_REPO=
+OPENWIFI_BRANCH=adrv9361z7035-2025.1
+
+# meta-adi checkout at META_ADI_REV (repository root, not meta-adi-xilinx).
+META_ADI_DIR=
+
+# Optional checkouts. fetch verifies the pinned revisions when these are set.
+OPENWIFI_HW_REPO=
+ADI_HDL_REPO=
+OPENOFDM_RX_REPO=
+
+# Shared bitbake caches.
+DL_DIR=
+SSTATE_DIR=
+BB_NUMBER_THREADS=8
+PARALLEL_MAKE="-j 8"
+
+# Input XSA for ./build.sh all. The v1.0 hash is checked.
+XSA=
+
+# Board SSH. The password is SSHPASS in the environment, or extracted at run
+# time from OPENWIFI_VALIDATION_SH (a local file, never committed).
+BOARD_IP=10.42.0.128
+BOARD_USER=analog
+BOARD_KNOWN_HOSTS=
+OPENWIFI_VALIDATION_SH=
+UART_DEV=/dev/ttyUSB0
+
+# Dedicated test dongle. Never set this to the management Wi-Fi interface.
+TEST_RADIO_IF=wlx1005014f5b7c
+HOST_IP=
+IPERF3=
+IPERF_LIB=

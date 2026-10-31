@@ -1,0 +1,30 @@
+diff --git a/user_space/load_fpga_img.sh b/user_space/load_fpga_img.sh
+--- a/user_space/load_fpga_img.sh
++++ b/user_space/load_fpga_img.sh
+@@ -73,9 +73,26 @@
+   #echo $DDS_DEVNAME  > unbind
+   #echo $DDS_DEVNAME  > bind
+ 
++  # P11: a full bitstream reload leaves the ADC platform device present
++  # but unbound. ad9361 and cf_axi_dds reprobe on their own; cf_axi_adc does
++  # not, and this loop used to spin forever (P08 and the first P11 load).
++  adc_wait=0
++  if [ ! -d "/sys/bus/platform/drivers/cf_axi_adc/$ADC_DEVNAME" ]; then
++    echo "P11: binding $ADC_DEVNAME to cf_axi_adc"
++    echo "$ADC_DEVNAME" > /sys/bus/platform/drivers/cf_axi_adc/bind || true
++  fi
+   while [ ! -d "/sys/bus/platform/drivers/cf_axi_adc/$ADC_DEVNAME" ]
+   do
+     echo "Waiting for /sys/bus/platform/drivers/cf_axi_adc/$ADC_DEVNAME"
++    adc_wait=$((adc_wait + 1))
++    if [ "$adc_wait" -eq 10 ] || [ "$adc_wait" -eq 25 ]; then
++      echo "P11: retry bind $ADC_DEVNAME"
++      echo "$ADC_DEVNAME" > /sys/bus/platform/drivers/cf_axi_adc/bind || true
++    fi
++    if [ "$adc_wait" -gt 40 ]; then
++      echo "FAIL: cf_axi_adc $ADC_DEVNAME did not bind" >&2
++      exit 1
++    fi
+     sleep 0.2
+   done
+   cd /sys/bus/platform/drivers/cf_axi_adc/

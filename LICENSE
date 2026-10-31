@@ -1,0 +1,10 @@
+SPDX-License-Identifier: AGPL-3.0-or-later
+
+Scripts and build glue written for this port are AGPL-3.0-or-later, matching
+upstream openwifi, unless a file says otherwise.
+
+Kernel-side patches are GPL-2.0-only, matching the Linux kernel.
+
+Third-party components keep their own licenses. See LICENSES.md.
+The full license texts are the upstream texts of those components. This file
+is the project statement, not a copy of the GNU AGPL.

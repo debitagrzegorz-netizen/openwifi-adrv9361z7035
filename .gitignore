@@ -1,0 +1,11 @@
+config/local.conf
+build/
+hw/xsa/
+*.wic
+*.wic.xz
+*.bit
+*.xsa
+*.ko
+*.dtbo
+*.o
+__pycache__/

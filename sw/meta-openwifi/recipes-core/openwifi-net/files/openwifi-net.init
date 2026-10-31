@@ -1,0 +1,21 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          openwifi-net
+# Required-Start:    $network
+# Required-Stop:
+# Default-Start:     S
+# Default-Stop:
+# Short-Description: DHCP + hostname + avahi refresh for openwifi.local
+### END INIT INFO
+
+case "$1" in
+  start)
+	# Give PHY a moment after ifup
+	sleep 2
+	/usr/sbin/openwifi-net-up.sh || true
+	;;
+  stop) ;;
+  restart|force-reload) $0 start ;;
+  *) echo "Usage: $0 {start|stop|restart}"; exit 1 ;;
+esac
+exit 0

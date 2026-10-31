@@ -1,0 +1,65 @@
+diff --git a/drivers/iio/adc/ad9361.c b/drivers/iio/adc/ad9361.c
+--- a/drivers/iio/adc/ad9361.c	2026-07-25 16:42:23.849905494 +0200
++++ b/drivers/iio/adc/ad9361.c
+@@ -1234,7 +1234,7 @@
+ 	return 0;
+ }
+ 
+-static int ad9361_set_tx_atten(struct ad9361_rf_phy *phy, u32 atten_mdb,
++int ad9361_set_tx_atten(struct ad9361_rf_phy *phy, u32 atten_mdb,
+ 			       bool tx1, bool tx2, bool immed)
+ {
+ 	u8 buf[2];
+@@ -1266,8 +1266,9 @@
+ 
+ 	return ret;
+ }
++EXPORT_SYMBOL(ad9361_set_tx_atten);
+ 
+-static int ad9361_get_tx_atten(struct ad9361_rf_phy *phy, u32 tx_num)
++int ad9361_get_tx_atten(struct ad9361_rf_phy *phy, u32 tx_num)
+ {
+ 	u8 buf[2];
+ 	int ret = 0;
+@@ -1285,6 +1286,7 @@
+ 
+ 	return code;
+ }
++EXPORT_SYMBOL(ad9361_get_tx_atten);
+ 
+ int ad9361_tx_mute(struct ad9361_rf_phy *phy, u32 state)
+ {
+@@ -3743,7 +3745,7 @@
+   // Setup Control Outs
+   //************************************************************
+ 
+-static int ad9361_ctrl_outs_setup(struct ad9361_rf_phy *phy,
++int ad9361_ctrl_outs_setup(struct ad9361_rf_phy *phy,
+ 				  struct ctrl_outs_control *ctrl)
+ {
+ 	struct spi_device *spi = phy->spi;
+@@ -3753,6 +3755,7 @@
+ 	ad9361_spi_write(spi, REG_CTRL_OUTPUT_POINTER, ctrl->index); // Ctrl Out index
+ 	return ad9361_spi_write(spi, REG_CTRL_OUTPUT_ENABLE, ctrl->en_mask); // Ctrl Out [7:0] output enable
+ }
++EXPORT_SYMBOL(ad9361_ctrl_outs_setup);
+   //************************************************************
+   // Setup GPO
+   //************************************************************
+@@ -5251,7 +5254,7 @@
+ 
+ }
+ 
+-static int ad9361_do_calib_run(struct ad9361_rf_phy *phy, u32 cal, int arg)
++int ad9361_do_calib_run(struct ad9361_rf_phy *phy, u32 cal, int arg)
+ {
+ 	struct ad9361_rf_phy_state *st = phy->state;
+ 	int ret, ret2;
+@@ -5284,6 +5287,7 @@
+ 
+ 	return ret ? ret : ret2;
+ }
++EXPORT_SYMBOL(ad9361_do_calib_run);
+ 
+ static int ad9361_update_rf_bandwidth(struct ad9361_rf_phy *phy,
+ 				     u32 rf_rx_bw, u32 rf_tx_bw)

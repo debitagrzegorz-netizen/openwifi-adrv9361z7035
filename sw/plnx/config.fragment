@@ -1,0 +1,8 @@
+# Applied by build.sh onto the generated project config.
+# User-layer paths are filled from config/local.conf. Do not put host paths here.
+CONFIG_SUBSYSTEM_ARCH_ARM=y
+CONFIG_SUBSYSTEM_ROOTFS_EXT4=y
+CONFIG_SUBSYSTEM_BOOTARGS_AUTO=y
+CONFIG_SUBSYSTEM_BOOTARGS_EARLYPRINTK=y
+CONFIG_SUBSYSTEM_EXTRA_BOOTARGS="ignore_loglevel loglevel=8 net.ifnames=0"
+CONFIG_SUBSYSTEM_HOSTNAME="openwifi"

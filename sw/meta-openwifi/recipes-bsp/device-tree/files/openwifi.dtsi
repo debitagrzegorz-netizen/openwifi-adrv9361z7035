@@ -1,0 +1,182 @@
+/*
+ * OpenWiFi SoftMAC nodes for ADRV9361-Z7035 OpenWiFi XSA (Vivado 2025.1).
+ *
+ * IMPORTANT — no Xilinx AXI-VDMA in this design.
+ * Compatible "xlnx,axi-dma-1.00.a" is matched by the in-tree platform driver
+ * named "xilinx-vdma" (xilinx_dma.c). Hang at xilinx_vdma_driver_init means
+ * that driver's probe of these OpenWiFi AXI DMA nodes, not leftover VDMA DT.
+ *
+ * Hardware clocking (from openwifi-hw system.v):
+ *   DMA s_axi_lite / mm2s / s2mm / sg and GP1 interconnect use
+ *   sys_ps7_FCLK_CLK2 = clk_wiz_0 output from util_ad9361_divclk (RF clock).
+ *   That domain is NOT live until AD9361 is configured. Therefore
+ *   CONFIG_XILINX_DMA must be a module loaded after AD9361 (see load_openwifi.sh).
+ *
+ * DT clocks <&clkc 15> (fclk0) still enable PS FCLK0 for any fabric that uses it
+ * (e.g. GP0 / axi_ad9361 / i2c). They do not replace the AD9361-derived DMA clock.
+ *
+ * IRQ map: concat In n → SPI 29+n (n=0..7) and SPI 44+n (n=8..15). See the sdr node.
+ */
+&amba {
+	/* Prefer real FCLK so PS enables PL clocks when drivers prepare clocks */
+	misc_clk_0: misc_clk_0 {
+		#clock-cells = <0>;
+		compatible = "fixed-clock";
+		clock-frequency = <100000000>;
+	};
+
+	/*
+	 * TX DMA @ 0x80400000 — concat In6/In7 → SPI 35/36 (LEVEL).
+	 * SoftMAC tx_itrpt is In5/SPI 34. Do not give SPI 34 to this DMA.
+	 * The old "SPI = 59 − n" cells (53/52) pointed at GND (In9/In8).
+	 */
+	openwifi_tx_dma: dma@80400000 {
+		#dma-cells = <1>;
+		compatible = "xlnx,axi-dma-1.00.a";
+		reg = <0x80400000 0x10000>;
+		clock-names = "s_axi_lite_aclk", "m_axi_sg_aclk", "m_axi_mm2s_aclk", "m_axi_s2mm_aclk";
+		/* fclk0 = clkc 15 — enables PL fabric for AXI DMA */
+		clocks = <&clkc 15>, <&clkc 15>, <&clkc 15>, <&clkc 15>;
+		interrupt-parent = <&intc>;
+		interrupt-names = "mm2s_introut", "s2mm_introut";
+		interrupts = <0 35 4>, <0 36 4>;
+		xlnx,addrwidth = <0x20>;
+		xlnx,include-sg;
+		xlnx,sg-length-width = <0xe>;
+		dma-channel@80400000 {
+			compatible = "xlnx,axi-dma-mm2s-channel";
+			interrupts = <0 35 4>;
+			xlnx,datawidth = <0x40>;
+			xlnx,device-id = <0>;
+		};
+		dma-channel@80400030 {
+			compatible = "xlnx,axi-dma-s2mm-channel";
+			interrupts = <0 36 4>;
+			xlnx,datawidth = <0x40>;
+			xlnx,device-id = <0>;
+		};
+	};
+
+	/* RX DMA @ 0x80410000 — concat In2/In3 → SPI 31/32 (LEVEL). Old 57/56 are unconnected. */
+	openwifi_rx_dma: dma@80410000 {
+		#dma-cells = <1>;
+		compatible = "xlnx,axi-dma-1.00.a";
+		reg = <0x80410000 0x10000>;
+		clock-names = "s_axi_lite_aclk", "m_axi_sg_aclk", "m_axi_mm2s_aclk", "m_axi_s2mm_aclk";
+		clocks = <&clkc 15>, <&clkc 15>, <&clkc 15>, <&clkc 15>;
+		interrupt-parent = <&intc>;
+		interrupt-names = "mm2s_introut", "s2mm_introut";
+		interrupts = <0 31 4>, <0 32 4>;
+		xlnx,addrwidth = <0x20>;
+		xlnx,include-sg;
+		xlnx,sg-length-width = <0xe>;
+		dma-channel@80410000 {
+			compatible = "xlnx,axi-dma-mm2s-channel";
+			interrupts = <0 31 4>;
+			xlnx,datawidth = <0x40>;
+			xlnx,device-id = <1>;
+		};
+		dma-channel@80410030 {
+			compatible = "xlnx,axi-dma-s2mm-channel";
+			interrupts = <0 32 4>;
+			xlnx,datawidth = <0x40>;
+			xlnx,device-id = <1>;
+		};
+	};
+
+	/*
+	 * sdr SoftMAC IRQs (driver: by name rx_pkt_intr / tx_itrpt;
+	 * fallback indices: 1 = RX, 3 = TX).
+	 *
+	 * sys_concat_intc (16 ports) → IRQ_F2P, PCW_IRQ_F2P_MODE=REVERSE.
+	 * Correct rule, matching the author DT for this board:
+	 *   In n → SPI 29+n for n = 0..7, and SPI 44+n for n = 8..15.
+	 * The old project table "SPI = 59 − n" is wrong. Do not restore it.
+	 *
+	 *   In0, In8, In9, In10, In15   GND
+	 *   In1  rx_pkt_intr            SPI 30  SoftMAC RX
+	 *   In2  axi_dma_1 mm2s         SPI 31  DMA @ 0x80410000
+	 *   In3  axi_dma_1 s2mm         SPI 32
+	 *   In4  tied 0                 SPI 33
+	 *   In5  tx_itrpt               SPI 34  SoftMAC TX
+	 *   In6  axi_dma_0 mm2s         SPI 35  DMA @ 0x80400000
+	 *   In7  axi_dma_0 s2mm         SPI 36
+	 *   In11 gps_pps                SPI 55
+	 *   In14 axi_iic @ 0x41600000   SPI 58
+	 *
+	 * Trigger type: official openwifi DT uses EDGE_RISING (1), not
+	 * LEVEL_HIGH (4). FPGA rx_pkt_intr stays high after the delayed
+	 * pulse until the next s2mm edge; LEVEL+ONESHOT re-enters forever.
+	 */
+	sdr: sdr {
+		compatible = "sdr,sdr";
+		dmas = <&openwifi_rx_dma 1>, <&openwifi_tx_dma 0>;
+		dma-names = "rx_dma_s2mm", "tx_dma_mm2s";
+		interrupt-parent = <&intc>;
+		interrupt-names = "not_valid_anymore", "rx_pkt_intr", "spare", "tx_itrpt";
+		/*
+		 * Index 0 spare SPI 29 (In0 GND), index 1 rx_pkt_intr SPI 30,
+		 * index 2 spare SPI 33 (In4 tied 0), index 3 tx_itrpt SPI 34.
+		 * EDGE_RISING (1) for every SoftMAC cell, as in the author DT.
+		 * Driver resolves by name, then falls back to index 1 and 3.
+		 */
+		interrupts = <0 29 1>, <0 30 1>, <0 33 1>, <0 34 1>;
+	};
+
+	/* No IRQ cells — IP drivers do not call request_irq */
+	tx_intf_0: tx_intf@83c00000 {
+		compatible = "sdr,tx_intf";
+		reg = <0x83c00000 0x10000>;
+		clocks = <&clkc 15>;
+		clock-names = "s00_axi_aclk";
+	};
+
+	openofdm_tx_0: openofdm_tx@83c10000 {
+		compatible = "sdr,openofdm_tx";
+		reg = <0x83c10000 0x10000>;
+		clocks = <&clkc 15>;
+		clock-names = "clk";
+	};
+
+	rx_intf_0: rx_intf@83c20000 {
+		compatible = "sdr,rx_intf";
+		reg = <0x83c20000 0x10000>;
+		clocks = <&clkc 15>;
+		clock-names = "s00_axi_aclk";
+	};
+
+	openofdm_rx_0: openofdm_rx@83c30000 {
+		compatible = "sdr,openofdm_rx";
+		reg = <0x83c30000 0x10000>;
+		clocks = <&clkc 15>;
+		clock-names = "clk";
+	};
+
+	xpu_0: xpu@83c40000 {
+		compatible = "sdr,xpu";
+		reg = <0x83c40000 0x10000>;
+		clocks = <&clkc 15>;
+		clock-names = "s00_axi_aclk";
+	};
+
+	side_ch_0: side_ch@83c50000 {
+		compatible = "sdr,side_ch";
+		reg = <0x83c50000 0x10000>;
+		clocks = <&clkc 15>;
+		clock-names = "s00_axi_aclk";
+		dmas = <&openwifi_rx_dma 0>, <&openwifi_tx_dma 1>;
+		dma-names = "rx_dma_mm2s", "tx_dma_s2mm";
+	};
+};
+
+/*
+ * Verbose boot + correct root (WIC p2).
+ * net.ifnames=0 → keep eth0 (avoid enx… MAC names breaking /etc/network/interfaces).
+ * console without hw flow-control assumptions.
+ */
+/ {
+	chosen {
+		stdout-path = "serial0:115200n8";
+		bootargs = "console=ttyPS0,115200n8 earlycon=cdns,mmio32,0xE0001000,115200n8 ignore_loglevel loglevel=8 root=/dev/mmcblk0p2 rw rootwait rootdelay=2 net.ifnames=0";
+	};
+};

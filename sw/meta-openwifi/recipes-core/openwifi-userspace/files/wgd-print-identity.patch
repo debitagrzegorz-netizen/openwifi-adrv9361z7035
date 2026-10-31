@@ -1,0 +1,36 @@
+diff --git a/user_space/wgd.sh b/user_space/wgd.sh
+--- a/user_space/wgd.sh	2026-07-25 15:31:23.698372365 +0200
++++ b/user_space/wgd.sh
+@@ -4,6 +4,32 @@
+ # SPDX-FileCopyrightText: 2022 UGent
+ # SPDX-License-Identifier: AGPL-3.0-or-later
+ 
++openwifi_print_identity() {
++  if [ -r /etc/openwifi-build-info ]; then
++    echo "openwifi build-info:"
++    cat /etc/openwifi-build-info
++  fi
++  if command -v devmem >/dev/null 2>&1; then
++    gitrev=$(devmem 0x83C400FC 32 2>/dev/null || true)
++    if [ -n "${gitrev}" ]; then
++      echo "xpu git rev: ${gitrev}"
++    fi
++  fi
++  usr=""
++  for n in /sys/class/fpga_manager/*/usercode /sys/devices/soc0/amba/f8007000.devcfg/usercode; do
++    if [ -r "$n" ]; then
++      usr=$(cat "$n" 2>/dev/null || true)
++      break
++    fi
++  done
++  if [ -n "${usr}" ]; then
++    echo "USR_ACCESS: ${usr}"
++  else
++    echo "USR_ACCESS: unread"
++  fi
++}
++openwifi_print_identity
++
+ print_usage () {
+   echo "usage:"
+   echo "  Script for load (or download+load) different driver and FPGA img without rebooting"

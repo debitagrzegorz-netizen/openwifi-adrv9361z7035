@@ -1,0 +1,8 @@
+# OpenWiFi ADRV9361-Z7035 SD card layout (PetaLinux 2025.1 / Yocto WIC)
+# Partition 1: VFAT boot (BOOT.BIN, boot.scr, FIT/uImage, DTB)
+# Partition 2: EXT4 rootfs (OpenWiFi driver, tests, Avahi, …)
+#
+# Boot files come from rootfs /boot (IMAGE_BOOT_FILES + packages).
+
+part /boot --source rootfs --change-directory=boot --fixed-size=512M --fstype=vfat --use-label --label boot --active --align 4
+part /     --source rootfs --exclude-path=boot/                     --fstype=ext4 --use-label --label root --align 4 --fixed-size=2G

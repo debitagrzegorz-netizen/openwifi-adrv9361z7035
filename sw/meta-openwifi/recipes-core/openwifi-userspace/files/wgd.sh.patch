@@ -1,0 +1,30 @@
+diff --git a/user_space/wgd.sh b/user_space/wgd.sh
+--- a/user_space/wgd.sh
++++ b/user_space/wgd.sh
+@@ -84,8 +84,10 @@
+   TARGET_DIR=.
+ fi
+ 
+-insmod ad9361_drv.ko
+-insmod xilinx_dma.ko
++# P01: ad9361_drv is built into this kernel. xilinx_dma is blacklisted against OF autoload;
++# modprobe by name still loads it. Author order below is unchanged.
++# insmod ad9361_drv.ko
++modprobe xilinx_dma
+ # modprobe ad9361_drv
+ # modprobe xilinx_dma
+ modprobe mac80211
+@@ -152,11 +154,11 @@
+ echo " "
+ 
+ killall hostapd
+-service dhcpcd stop #dhcp client. it will get secondary ip for sdr0 which causes trouble
++service dhcpcd stop || true #dhcp client. it will get secondary ip for sdr0 which causes trouble
+ killall dhcpd 
+ killall wpa_supplicant
+ #service network-manager stop
+-ifconfig sdr0 down
++ifconfig sdr0 down || true
+ 
+ rmmod sdr
+ 
