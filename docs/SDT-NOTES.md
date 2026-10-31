@@ -94,7 +94,9 @@ The packaged Linux DTB is `system-top.dtb`. With `SYSTEM_DTFILE` set,
 SDT domain tree. `DTB_FILE_NAME` and `LINUX_DT_FILE_NAME` select
 `system-top.dtb` for the image `system.dtb`. The kernel fitImage default is
 `system-top.dtb`. `cortexa9-linux.dts` stays the SDT domain tree for the FSBL
-and U-Boot. This is not a switch to the DTG flow.
+and U-Boot. This is not a switch to the DTG flow. The next software
+stage compiled `device-tree` (`do_compile` succeeded) and failed later
+in `fru-tools` and `openwifi-tools`, not in the device tree.
 
 ## Reviewed differences
 

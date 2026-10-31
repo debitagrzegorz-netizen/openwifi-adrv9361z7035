@@ -6,7 +6,7 @@ SRC_URI = "git://${OPENWIFI_REPO};protocol=file;branch=${OPENWIFI_BRANCH};destsu
 SRCREV = "${OPENWIFI_REV}"
 S = "${WORKDIR}/git/user_space"
 
-DEPENDS = "libnl"
+DEPENDS = "libnl libpcap"
 RDEPENDS:${PN} = "libnl"
 
 do_configure() {
@@ -24,7 +24,7 @@ do_compile() {
         LIBS="-lnl-genl-3 -lnl-3" \
         NLLIBNAME=libnl-3.0
     ${CC} ${CFLAGS} ${LDFLAGS} -I${S}/inject_80211 -o inject_80211 \
-        ${S}/inject_80211/inject_80211.c
+        ${S}/inject_80211/inject_80211.c -lpcap
     ${CC} ${CFLAGS} ${LDFLAGS} -o side_ch_ctl \
         ${S}/side_ch_ctl_src/side_ch_ctl.c
 }
