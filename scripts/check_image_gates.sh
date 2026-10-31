@@ -120,16 +120,37 @@ need_pkgs = [
     "avahi-daemon", "kernel-module-xilinx-dma", "openwifi-net", "libnl",
     "wpa-supplicant",
 ]
+# tcpdump and dnsmasq install under /usr/bin on this release.
+file_alts = {
+    "usr/sbin/tcpdump": ("usr/sbin/tcpdump", "usr/bin/tcpdump"),
+    "usr/sbin/dnsmasq": ("usr/sbin/dnsmasq", "usr/bin/dnsmasq"),
+}
+
+def has_file(names, path):
+    for cand in file_alts.get(path, (path,)):
+        if cand in names or ("./" + cand) in names:
+            return True
+    return False
+
+def has_pkg(lines, pkg):
+    if pkg in lines:
+        return True
+    # The split module package is versioned. libnl ships as libnl-3-200.
+    if pkg == "kernel-module-xilinx-dma":
+        return any(item == pkg or item.startswith(pkg + "-") for item in lines)
+    if pkg == "libnl":
+        return any(item == pkg or item.startswith("libnl-") for item in lines)
+    return False
+
 names = set()
 with tarfile.open(rootfs, "r:gz") as tar:
     for member in tar.getnames():
         names.add(member.lstrip("./"))
-missing = [n for n in need_files if n not in names and ("./" + n) not in names]
+missing = [n for n in need_files if not has_file(names, n)]
 text = open(manifest, errors="replace").read()
-missing_pkg = [p for p in need_pkgs if p not in text.split()]
 # Manifest lines are "pkg arch version". Match the package token.
 lines = [ln.split()[0] for ln in text.splitlines() if ln.strip()]
-missing_pkg = [p for p in need_pkgs if p not in lines]
+missing_pkg = [p for p in need_pkgs if not has_pkg(lines, p)]
 if missing or missing_pkg:
     print("FAIL files", missing)
     print("FAIL packages", missing_pkg)
