@@ -348,20 +348,30 @@ PY
   printf '%s\n' "$bit"
 }
 
+copy_over() {
+  local src=$1 dest=$2
+  # petalinux-package already writes BOOT.BIN in images/linux. GNU cp
+  # exits 1 when the source and the destination are the same file.
+  if [ -e "$dest" ] && [ "$src" -ef "$dest" ]; then
+    return 0
+  fi
+  cp -f "$src" "$dest"
+}
+
 install_boot_artifacts() {
   local bit=$1
   local boot=$ROOT/build/plnx/images/linux/BOOT.BIN
+  local dest_bit=$ROOT/build/plnx/images/linux/system.bit
   [ -f "$boot" ] || die "BOOT.BIN was not packaged"
   [ -f "$bit" ] || die "extracted bitstream missing"
-  cp -f "$bit" "$ROOT/build/plnx/images/linux/system.bit"
-  cp -f "$boot" "$ROOT/build/plnx/images/linux/BOOT.BIN"
+  copy_over "$bit" "$dest_bit"
   local deploy=$ROOT/build/plnx/build/tmp/deploy/images
   local dir
   if [ -d "$deploy" ]; then
     for dir in "$deploy"/*; do
       [ -d "$dir" ] || continue
-      cp -f "$bit" "$dir/system.bit"
-      cp -f "$boot" "$dir/BOOT.BIN"
+      copy_over "$bit" "$dir/system.bit"
+      copy_over "$boot" "$dir/BOOT.BIN"
       echo "installed boot files into $dir"
     done
   fi
