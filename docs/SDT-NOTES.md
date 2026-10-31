@@ -96,7 +96,11 @@ SDT domain tree. `DTB_FILE_NAME` and `LINUX_DT_FILE_NAME` select
 `system-top.dtb`. `cortexa9-linux.dts` stays the SDT domain tree for the FSBL
 and U-Boot. This is not a switch to the DTG flow. The next software
 stage compiled `device-tree` (`do_compile` succeeded) and failed later
-in `fru-tools` and `openwifi-tools`, not in the device tree.
+in `fru-tools` and `openwifi-tools`, not in the device tree. The FSBL
+multiconfig also builds `device-tree`. Its kernel is `linux-dummy`, so
+meta-adi's copy of `arch/arm/boot/dts/xilinx` fails there. That append is
+masked for `xlnx-zynq-7000-cortexa9-fsbl` only. The Linux machine still
+uses it. The FSBL keeps the SDT domain tree named by its `CONFIG_DTFILE`.
 
 ## Reviewed differences
 

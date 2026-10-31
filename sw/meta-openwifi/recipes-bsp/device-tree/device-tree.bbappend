@@ -16,6 +16,9 @@ SRC_URI:append = " \
 # already be there. Otherwise the include is the whole file, it is pulled in
 # before the root node, and dtc rejects /delete-node/.
 do_configure:prepend() {
+    if [ "${BB_CURRENT_MC}" = "xlnx-zynq-7000-cortexa9-fsbl" ]; then
+        return 0
+    fi
     sdt_pl="${RECIPE_SYSROOT}/usr/share/sdt/${MACHINE}/pl.dtsi"
     if [ ! -f "$sdt_pl" ]; then
         sdt_pl=$(echo ${RECIPE_SYSROOT}/usr/share/sdt/*/pl.dtsi)
@@ -31,10 +34,18 @@ do_configure:prepend() {
 # is compiled with every other .dts. The ADI cleanup labels exist only on
 # system-top.dts, so the overlay is appended there after meta-adi writes it.
 # plnx-deploy would otherwise install cortexa9-linux.dtb as system.dtb.
-DTB_FILE_NAME = "system-top.dtb"
-LINUX_DT_FILE_NAME = "/devicetree/system-top.dtb"
+# The FSBL multiconfig keeps the name from CONFIG_DTFILE.
+python () {
+    if (d.getVar('BB_CURRENT_MC') or '') == 'xlnx-zynq-7000-cortexa9-fsbl':
+        return
+    d.setVar('DTB_FILE_NAME', 'system-top.dtb')
+    d.setVar('LINUX_DT_FILE_NAME', '/devicetree/system-top.dtb')
+}
 
 do_configure:append() {
+    if [ "${BB_CURRENT_MC}" = "xlnx-zynq-7000-cortexa9-fsbl" ]; then
+        return 0
+    fi
     top="${DT_FILES_PATH}/system-top.dts"
     if [ ! -f "$top" ]; then
         bbfatal "system-top.dts is missing after meta-adi configure"
