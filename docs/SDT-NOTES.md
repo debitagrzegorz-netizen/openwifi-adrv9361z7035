@@ -61,6 +61,18 @@ and `afi3`, which nothing kept references. Those nodes, and the extra
 `reexport.bit` is not the boot bitstream. The image stage packages the
 bitstream extracted from the input XSA.
 
+## Attempt 1
+
+`device-tree.bb:do_compile` failed. meta-adi appends the delete include onto
+`${DT_FILES_PATH}/pl.dtsi`. The SDT flow does not create that file.
+`sdt-artifacts` installs `pl.dtsi` under `/usr/share/sdt/${MACHINE}/`. The
+append therefore created a one-line file. `system-top.dts` includes it
+immediately after `/dts-v1/;`, and dtc reported a syntax error on
+`/delete-node/` at `pl-delete-nodes-openwifi-adrv9361z7035-bob.dtsi:6`
+because no node exists yet. The fix copies the sdt-artifacts `pl.dtsi` into
+place in `do_configure:prepend`, before the delete include is appended. This
+is not a switch to the DTG flow.
+
 ## Reviewed differences
 
 pending first image
