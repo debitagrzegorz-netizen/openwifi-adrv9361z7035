@@ -9,3 +9,4 @@ hw/xsa/
 *.dtbo
 *.o
 __pycache__/
+.Xil/
