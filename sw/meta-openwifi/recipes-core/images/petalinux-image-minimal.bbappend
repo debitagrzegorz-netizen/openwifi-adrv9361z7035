@@ -224,10 +224,12 @@ EOF
 ROOTFS_POSTPROCESS_COMMAND:append = " openwifi_write_build_info;"
 
 # Hash of the packaged boot files. "missing" until the image stage packages them.
-# do_rootfs must depend on this value. Otherwise a new BOOT.BIN or system.bit
-# is left out of the WIC and the image task is restored from sstate.
+# The ${@} result is kept in the parse cache, so a later petalinux-build does
+# not notice BOOT.BIN and system.bit appearing on disk. The file checksums are
+# read when the task hash is built, which makes do_rootfs run again.
 OPENWIFI_BOOT_SHA = "${@openwifi_boot_sha(d)}"
 do_rootfs[vardeps] += "OPENWIFI_BOOT_SHA"
+do_rootfs[file-checksums] += "${DEPLOY_DIR_IMAGE}/BOOT.BIN:True ${DEPLOY_DIR_IMAGE}/system.bit:True"
 
 def openwifi_boot_sha(d):
     import hashlib
