@@ -13,6 +13,8 @@ EXTRA_OEMAKE += "KDIR=${STAGING_KERNEL_DIR}"
 do_configure:append() {
     rev=$(printf '%s' "${SRCREV}" | cut -c1-8)
     printf '#define GIT_REV 0x%s\n' "$(printf '%s' "$rev" | tr 'a-f' 'A-F')" > ${S}/git_rev.h
+    # pre_def.h is gitignored. make_all.sh writes this one define and nothing else.
+    printf '%s\n' '#define USE_NEW_RX_INTERRUPT 1' > ${S}/pre_def.h
 }
 
 do_compile() {

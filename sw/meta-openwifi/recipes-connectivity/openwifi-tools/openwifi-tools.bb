@@ -23,17 +23,19 @@ do_compile() {
         NO_PKG_CONFIG=1 \
         LIBS="-lnl-genl-3 -lnl-3" \
         NLLIBNAME=libnl-3.0
-    ${CC} ${CFLAGS} ${LDFLAGS} -I${S}/inject_80211 -o inject_80211 \
+    # user_space/inject_80211 is the source directory, so the binary cannot
+    # use that name inside ${S}.
+    ${CC} ${CFLAGS} ${LDFLAGS} -I${S}/inject_80211 -o ${WORKDIR}/inject_80211 \
         ${S}/inject_80211/inject_80211.c -lpcap
-    ${CC} ${CFLAGS} ${LDFLAGS} -o side_ch_ctl \
+    ${CC} ${CFLAGS} ${LDFLAGS} -o ${WORKDIR}/side_ch_ctl \
         ${S}/side_ch_ctl_src/side_ch_ctl.c
 }
 
 do_install() {
     install -d ${D}${sbindir}
     install -m 0755 ${S}/sdrctl_src/sdrctl ${D}${sbindir}/sdrctl
-    install -m 0755 inject_80211 ${D}${sbindir}/inject_80211
-    install -m 0755 side_ch_ctl ${D}${sbindir}/side_ch_ctl
+    install -m 0755 ${WORKDIR}/inject_80211 ${D}${sbindir}/inject_80211
+    install -m 0755 ${WORKDIR}/side_ch_ctl ${D}${sbindir}/side_ch_ctl
 }
 
 FILES:${PN} = " \
