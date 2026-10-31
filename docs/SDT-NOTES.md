@@ -73,6 +73,29 @@ because no node exists yet. The fix copies the sdt-artifacts `pl.dtsi` into
 place in `do_configure:prepend`, before the delete include is appended. This
 is not a switch to the DTG flow.
 
+## Attempt 2
+
+`device-tree.bb:do_compile` failed on `cortexa9-linux.dts`. That SDT domain
+tree includes `system-user.dtsi`, and that file included `openwifi.dtsi` and
+`openwifi-adi-cleanup.dtsi`. The cleanup file references ADI labels
+(`cf_ad9361_adc_core_0`, `cf_ad9361_dac_core_0`, `rx_dma`, `tx_dma`,
+`axi_sysid_0`, `axi_i2c0`, and `/fpga-axi@0/mwipcore@43c00000`) that exist in
+`zynq-adrv9361-z7035.dtsi` and not in the SDT domain tree. dtc stopped before
+`system-top.dts`. A local preprocess of `system-top.dts` with the same overlay
+compiled, with warnings only.
+
+`system-user.dtsi` now keeps `system-conf.dtsi` and the GEM MAC, which both
+trees have. `do_configure:append` adds the two OpenWiFi includes only to
+`system-top.dts`, after meta-adi has copied the ADI board DTS.
+
+The packaged Linux DTB is `system-top.dtb`. With `SYSTEM_DTFILE` set,
+`plnx-deploy` installs `cortexa9-linux.dtb` as `system.dtb`, and
+`FIT_CONF_DEFAULT_DTB` follows `CONFIG_DTFILE`, so `image.ub` would boot the
+SDT domain tree. `DTB_FILE_NAME` and `LINUX_DT_FILE_NAME` select
+`system-top.dtb` for the image `system.dtb`. The kernel fitImage default is
+`system-top.dtb`. `cortexa9-linux.dts` stays the SDT domain tree for the FSBL
+and U-Boot. This is not a switch to the DTG flow.
+
 ## Reviewed differences
 
 pending first image

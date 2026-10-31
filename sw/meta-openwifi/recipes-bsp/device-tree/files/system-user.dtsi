@@ -1,6 +1,7 @@
 /include/ "system-conf.dtsi"
-/include/ "openwifi.dtsi"
-/include/ "openwifi-adi-cleanup.dtsi"
+
+/* OpenWiFi nodes are appended to system-top.dts only.
+ * cortexa9-linux.dts also includes this file and has no ADI labels. */
 
 &gem0 {
 	mac-address = [00 0a 35 00 1e 53];

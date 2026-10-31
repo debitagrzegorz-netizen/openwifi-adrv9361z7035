@@ -26,3 +26,20 @@ do_configure:prepend() {
     mkdir -p "${DT_FILES_PATH}"
     cp -f "$sdt_pl" "${DT_FILES_PATH}/pl.dtsi"
 }
+
+# cortexa9-linux.dts is the SDT domain tree. It includes system-user.dtsi and
+# is compiled with every other .dts. The ADI cleanup labels exist only on
+# system-top.dts, so the overlay is appended there after meta-adi writes it.
+# plnx-deploy would otherwise install cortexa9-linux.dtb as system.dtb.
+DTB_FILE_NAME = "system-top.dtb"
+LINUX_DT_FILE_NAME = "/devicetree/system-top.dtb"
+
+do_configure:append() {
+    top="${DT_FILES_PATH}/system-top.dts"
+    if [ ! -f "$top" ]; then
+        bbfatal "system-top.dts is missing after meta-adi configure"
+    fi
+    if ! grep -q 'openwifi.dtsi' "$top"; then
+        printf '\n#include "openwifi.dtsi"\n#include "openwifi-adi-cleanup.dtsi"\n' >> "$top"
+    fi
+}
