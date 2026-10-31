@@ -63,7 +63,24 @@ fi
 
 ssh_board() { sshpass -e ssh "${SSH_OPTS[@]}" "${BOARD_USER}@${BOARD_IP}" "$@"; }
 board_sudo() {
-  ssh_board "printf '%s\n' $(printf '%q' "$SSHPASS") | sudo -S -p '' sh -c $(printf '%q' "$1")"
+  # Password on stdin. Putting it in the remote command shows it in ps.
+  ssh_board "sudo -S -p '' sh -c $(printf '%q' "$1")" <<EOF
+$SSHPASS
+EOF
+}
+# sudo does not relay SIGTERM to a child (use_pty), so wait would block.
+reap_pid() {
+  local pid=$1 i
+  for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+    ps -p "$pid" >/dev/null 2>&1 || return 0
+    sleep 0.4
+  done
+  kill "$pid" 2>/dev/null || true
+  sleep 0.2
+  if ps -p "$pid" >/dev/null 2>&1; then
+    kill -9 "$pid" 2>/dev/null || true
+  fi
+  wait "$pid" 2>/dev/null || true
 }
 scp_board() { sshpass -e scp "${SSH_OPTS[@]}" "$1" "${BOARD_USER}@${BOARD_IP}:$2"; }
 
@@ -525,7 +542,8 @@ f9() {
   local bp=$!
   sleep 0.5
   sudo -n /usr/local/sbin/inject_80211 -m g -r 0 -t d -n 30 -d 20000 -s 100 -a 000000000001 -b 000000c0ffee "$WLX" >"$OUT/f9-inject.txt" 2>&1 || true
-  wait "$bp" || true
+  reap_pid "$bp"
+  board_sudo 'killall tcpdump 2>/dev/null || true' >/dev/null 2>&1 || true
   ssh_board 'tcpdump -n -e -r /tmp/p22-f9.pcap | head -n 20' >"$OUT/f9-decode.txt" 2>&1 || true
   after=$(board_sudo 'grep -E "rx_pkt|sdr" /proc/interrupts | head -n 5' || true)
   printf '%s\n%s\n' "$before" "$after" >"$OUT/f9-irq.txt"
@@ -561,13 +579,7 @@ f10() {
       local tpid=$!
       sleep 0.4
       board_sudo "$bin -m $mode -r $idx -t d -n 20 -d 20000 -s $size -a 000000000001 -b 000000c0ffee sdr0" >"$OUT/f10-${mode}-r${idx}-s${size}.txt" 2>&1 || true
-      local w
-      for w in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
-        ps -p "$tpid" >/dev/null 2>&1 || break
-        sleep 0.4
-      done
-      kill "$tpid" 2>/dev/null || true
-      wait "$tpid" 2>/dev/null || true
+      reap_pid "$tpid"
       count=$(sudo -n /usr/bin/tcpdump -n -e -r "$pcap" 2>/dev/null | grep -c ' Mb/s ' || true)
       detail+=" ${mode}r${idx}s${size}=${count};"
       if [ "${count:-0}" -lt 8 ]; then
@@ -598,7 +610,8 @@ f11() {
     local bp=$!
     sleep 0.4
     sudo -n /usr/local/sbin/inject_80211 -m "$mode" -r "$idx" -t d -n 20 -d 20000 -s 100 -a 000000000001 -b 000000c0ffee "$WLX" >"$OUT/f11-${mode}-r${idx}.txt" 2>&1 || true
-    wait "$bp" || true
+    reap_pid "$bp"
+    board_sudo 'killall tcpdump 2>/dev/null || true' >/dev/null 2>&1 || true
     count=$(ssh_board 'tcpdump -n -e -r /tmp/p22-f11.pcap | grep -c " Mb/s "' || true)
     detail+=" ${mode}r${idx}=${count};"
     [ "${count:-0}" -ge 5 ] || fail=1
