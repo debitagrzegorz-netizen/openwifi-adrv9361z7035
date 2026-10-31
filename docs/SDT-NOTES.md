@@ -104,4 +104,25 @@ uses it. The FSBL keeps the SDT domain tree named by its `CONFIG_DTFILE`.
 
 ## Reviewed differences
 
-pending first image
+Compared `images/linux/system.dtb` (decompiled, 38692 bytes) with
+`sw/reference/v1.0-system.dts`. Critical checks pass: `/axi/sdr` interrupts
+`0 29 1 0 30 1 0 33 1 0 34 1`, `dma@80400000` `0 35 4 0 36 4`,
+`dma@80410000` `0 31 4 0 32 4`, `/fpga-axi@0/i2c@41600000` `0 58 4`,
+`adi,ad9361` at `/axi/spi@e0006000/ad9361-phy@0` with both RF port selects 0,
+ADM1166, GEM, SD, UART, and USB present. GEM MAC is `00:0a:35:00:1e:53`.
+OpenWiFi, DMA, AD9361, and I2C nodes stay under `/axi` and `/fpga-axi@0`.
+There is no `amba_pl` bus of PL peripherals.
+
+The unified diff is phandle renumbering plus one node.
+
+The v1.0 DTB has an empty top-level `pl-bus` (`compatible = "simple-bus"`,
+`ranges`, no children, no other property references it). Its `__symbols__`
+entry is `amba_pl = "/pl-bus"`. The SDT tree deletes `&amba_pl` after the
+ADI board DTS is applied, and the ADI DTS does not recreate that empty bus.
+The PL devices that v1.0 uses are not under that node, so dropping it does
+not remove or move them.
+
+dtc then assigns phandle `0x1a` to the next node. Every later node's own
+`phandle` property is one lower than in the v1.0 decompile. Cross-references
+(`interrupt-parent`, `clocks`, `dmas`, `syscon`, `gpios`) keep the same
+values. No other property, reg, interrupt, or compatible string differs.
