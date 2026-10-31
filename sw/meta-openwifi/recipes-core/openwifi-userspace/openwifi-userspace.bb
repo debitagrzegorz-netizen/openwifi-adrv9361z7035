@@ -1,6 +1,7 @@
 SUMMARY = "OpenWiFi author userspace scripts and FIR files"
 LICENSE = "AGPL-3.0-or-later"
-LIC_FILES_CHKSUM = "file://../LICENSE;md5=73f1eb20517c55bf9493b7dd6e480788"
+# S is the openwifi repository root, so LICENSE is inside S.
+LIC_FILES_CHKSUM = "file://LICENSE;md5=73f1eb20517c55bf9493b7dd6e480788"
 
 SRC_URI = " \
     git://${OPENWIFI_REPO};protocol=file;branch=${OPENWIFI_BRANCH};destsuffix=git \
