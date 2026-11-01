@@ -22,8 +22,17 @@ SSTATE_DIR=
 BB_NUMBER_THREADS=8
 PARALLEL_MAKE="-j 8"
 
-# Input XSA for ./build.sh all. The v1.0 hash is checked.
+# Input XSA for ./build.sh sdt when --xsa is passed. The v1.0 hash is checked.
 XSA=
+
+# Vivado jobs for ./build.sh hw. Default 8.
+HW_JOBS=8
+
+# Reference .hwh for the hardware equivalence gate. A local path, never committed.
+# EQUIV_HWH=
+
+# Set to 1 only when the pinned ADI HDL declares a different Vivado version.
+# ADI_IGNORE_VERSION_CHECK=
 
 # Board SSH. The password is SSHPASS in the environment, or extracted at run
 # time from OPENWIFI_VALIDATION_SH (a local file, never committed).

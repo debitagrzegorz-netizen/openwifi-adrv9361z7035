@@ -1,0 +1,13 @@
+# Critical-warning IDs accepted by the hardware build.
+# A new ID fails the gate. Repeated IDs are not counted.
+# BD 41-2383 is the utility-IP inline-HDL migration notice.
+# BD 41-759, Common 17-55, Designutils 20-1280, IP_Flow 19-3432,
+# PSU-1, PSU-2, and Timing 38-282 were present on the v1.0 build.
+BD 41-2383
+BD 41-759
+Common 17-55
+Designutils 20-1280
+IP_Flow 19-3432
+PSU-1
+PSU-2
+Timing 38-282

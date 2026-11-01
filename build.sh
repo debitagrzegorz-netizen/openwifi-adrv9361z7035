@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # SDT PetaLinux build for ADRV9361-Z7035. Stages are idempotent.
 # all = fetch + sdt + plnx-create + sw + image. It does not flash and it does
-# not run the on-board matrix.
+# not run the on-board matrix. hw is a separate Vivado entry until the
+# hardware flow is the one `all` builds.
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")" && pwd)
@@ -13,19 +14,35 @@ XSA_ARG=""
 DEVICE=""
 YES=0
 FORCE=0
+HW_DIRECTIVE=""
+HW_STAGES=""
+HW_FROM=""
+HW_TO=""
+HW_CLEAN=0
+HW_SIM=""
+HW_JOBS_ARG=""
+HW_ALLOW_DIRTY=0
 
 usage() {
-  echo "usage: $0 [fetch|sdt|plnx-create|sw|image|gates|flash|test|all] [--xsa FILE] [--device /dev/sdX] [--yes] [--force]" >&2
+  echo "usage: $0 [fetch|sdt|plnx-create|sw|image|gates|flash|test|hw|all] [--xsa FILE] [--device /dev/sdX] [--yes] [--force] [--directive_set NAME] [--stages LIST] [--from STAGE] [--to STAGE] [--jobs N] [--clean] [--sim cdc] [--allow-dirty]" >&2
   exit 2
 }
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    fetch|sdt|plnx-create|sw|image|gates|flash|test|all) STAGE=$1; shift ;;
+    fetch|sdt|plnx-create|sw|image|gates|flash|test|hw|all) STAGE=$1; shift ;;
     --xsa) XSA_ARG=${2:-}; shift 2 ;;
     --device) DEVICE=${2:-}; shift 2 ;;
     --yes) YES=1; shift ;;
     --force) FORCE=1; shift ;;
+    --directive_set) HW_DIRECTIVE=${2:-}; shift 2 ;;
+    --stages) HW_STAGES=${2:-}; shift 2 ;;
+    --from) HW_FROM=${2:-}; shift 2 ;;
+    --to) HW_TO=${2:-}; shift 2 ;;
+    --jobs) HW_JOBS_ARG=${2:-}; shift 2 ;;
+    --clean) HW_CLEAN=1; shift ;;
+    --sim) HW_SIM=${2:-}; shift 2 ;;
+    --allow-dirty) HW_ALLOW_DIRTY=1; shift ;;
     -h|--help) usage ;;
     *) usage ;;
   esac
@@ -485,8 +502,50 @@ stage_test() {
   "$ROOT/tests/run_regression.sh" --matrix --image "${IMAGE_NAME:-sdt}"
 }
 
+stage_hw() {
+  load_tools
+  disk_ok
+  local vivado
+  vivado=${TOOLS_ROOT}/Vivado/bin/vivado
+  [ -x "$vivado" ] || die "vivado not found: $vivado"
+  mkdir -p "$ROOT/build/hw/logs" "$ROOT/build/hw/tmp"
+  local -a args
+  args=(-config "$ROOT/config/versions.conf" -local "$ROOT/config/local.conf")
+  if [ -n "$HW_DIRECTIVE" ]; then
+    args+=(-directive_set "$HW_DIRECTIVE")
+  fi
+  if [ -n "$HW_STAGES" ]; then
+    args+=(-stages "$HW_STAGES")
+  fi
+  if [ -n "$HW_FROM" ]; then
+    args+=(-from "$HW_FROM")
+  fi
+  if [ -n "$HW_TO" ]; then
+    args+=(-to "$HW_TO")
+  fi
+  if [ -n "$HW_JOBS_ARG" ]; then
+    args+=(-jobs "$HW_JOBS_ARG")
+  fi
+  if [ "$HW_CLEAN" = 1 ]; then
+    args+=(-clean)
+  fi
+  if [ -n "$HW_SIM" ]; then
+    args+=(-sim "$HW_SIM")
+  fi
+  if [ "$HW_ALLOW_DIRTY" = 1 ]; then
+    args+=(-allow_dirty)
+  fi
+  cd "$ROOT/build/hw/tmp"
+  stdbuf -oL -eL "$vivado" -mode batch -notrace \
+    -log "$ROOT/build/hw/logs/vivado.log" \
+    -journal "$ROOT/build/hw/logs/vivado.jou" \
+    -source "$ROOT/hw/build_hw.tcl" \
+    -tclargs "${args[@]}"
+}
+
 case "$STAGE" in
   fetch) run_stage fetch stage_fetch ;;
+  hw) run_stage hw stage_hw ;;
   sdt) run_stage sdt stage_sdt ;;
   plnx-create) run_stage plnx-create stage_plnx ;;
   sw) run_stage sw stage_sw ;;
