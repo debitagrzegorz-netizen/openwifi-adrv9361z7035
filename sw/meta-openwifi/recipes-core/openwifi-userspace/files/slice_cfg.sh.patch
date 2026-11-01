@@ -1,0 +1,17 @@
+diff --git a/user_space/slice_cfg.sh b/user_space/slice_cfg.sh
+--- a/user_space/slice_cfg.sh
++++ b/user_space/slice_cfg.sh
+@@ -24,7 +24,9 @@
+ echo $start_time
+ echo $end_time
+ 
+-./sdrctl dev sdr0 set addr$slice_idx $mac_addr
+-./sdrctl dev sdr0 set slice_total$slice_idx $cycle_period
+-./sdrctl dev sdr0 set slice_start$slice_idx $start_time
+-./sdrctl dev sdr0 set slice_end$slice_idx $end_time
++# This sdrctl takes slice_idx as hex, then the unindexed registers.
++./sdrctl dev sdr0 set slice_idx $(printf '%x' "$slice_idx")
++./sdrctl dev sdr0 set addr $mac_addr
++./sdrctl dev sdr0 set slice_total $cycle_period
++./sdrctl dev sdr0 set slice_start $start_time
++./sdrctl dev sdr0 set slice_end $end_time

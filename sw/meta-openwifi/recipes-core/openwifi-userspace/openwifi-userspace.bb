@@ -8,6 +8,7 @@ SRC_URI = " \
     file://wgd.sh.patch \
     file://wgd-print-identity.patch \
     file://load_fpga_img.sh.patch \
+    file://slice_cfg.sh.patch \
     file://openwifi.conf \
     file://70-openwifi-sdr0.rules \
     file://hostapd-openwifi-2g.conf \
