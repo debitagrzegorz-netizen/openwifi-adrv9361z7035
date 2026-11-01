@@ -951,13 +951,73 @@ f15() {
   fi
 }
 
+# Dongle AP used as the OFDM source for F16 and F17. Trigger 0 stores a
+# capture only after an FCS strobe, so an AP that is up but unheard leaves
+# register 20 at 0. The label stays free of the lab SSID.
+side_ap_ready() {
+  local dest=$1 info
+  if ! require_txpower; then
+    printf '%s\n' "txpower not 5.00 dBm" >"$dest"
+    return 1
+  fi
+  info=$(sudo -n /usr/sbin/iw dev "$WLX" info 2>/dev/null || true)
+  printf '%s\n' "$info" >"$dest"
+  printf '%s\n' "$info" | grep -q 'type AP' || return 1
+  printf '%s\n' "$info" | grep -q 'channel 13' || return 1
+  printf '%s\n' "$info" | grep -q 'txpower 5.00 dBm' || return 1
+  return 0
+}
+
+# RX IRQ delta while sdr0 is already in monitor. Prints the delta, or NA
+# when the interrupt line cannot be parsed. A positive delta is the
+# "frames are arriving" precondition; the count itself is the evidence.
+side_rx_delta() {
+  local dest=$1 before after
+  before=$(board_sudo 'grep rx_pkt_intr /proc/interrupts | head -n 1' | tr -d '\r' | grep rx_pkt_intr | head -n 1 || true)
+  sleep 2
+  after=$(board_sudo 'grep rx_pkt_intr /proc/interrupts | head -n 1' | tr -d '\r' | grep rx_pkt_intr | head -n 1 || true)
+  {
+    printf 'BEFORE %s\n' "$before"
+    printf 'AFTER %s\n' "$after"
+  } >"$dest"
+  python3 - "$dest" <<'PY'
+import re, sys
+def cpus(line):
+    if "rx_pkt_intr" not in line:
+        return None
+    match = re.search(r":\s+([\d\s]+)", line)
+    if not match:
+        return None
+    nums = [int(part) for part in match.group(1).split()]
+    return sum(nums) if nums else None
+before = after = None
+for line in open(sys.argv[1], errors="replace"):
+    if line.startswith("BEFORE"):
+        before = cpus(line)
+    elif line.startswith("AFTER"):
+        after = cpus(line)
+if before is None or after is None:
+    print("NA")
+else:
+    print(after - before)
+PY
+}
+
 # Reg 20 counts queued side-channel words. One CSI frame is 474 words
 # (header 2 + CSI 56 + 8 equalizers of 52). One IQ frame at iq_len 4095 is
 # 4096 words. A GET before a full frame is queued returns an empty payload.
+# Poll for up to 10 s. The previous 8-by-0.3 s loop returned before a late
+# beacon could land.
 wait_side_fifo() {
-  local need=$1 dest=$2 i val
+  local need=$1 dest=$2 val start now tries=0
   : >"$dest"
-  for i in 1 2 3 4 5 6 7 8; do
+  start=$(date +%s)
+  while [ "$tries" -lt 40 ]; do
+    tries=$((tries + 1))
+    now=$(date +%s)
+    if [ "$tries" -gt 1 ] && [ $((now - start)) -ge 10 ]; then
+      return 1
+    fi
     val=$(board_sudo 'cd /home/analog/openwifi && ./side_ch_ctl rh20' | tr -d '\r' | awk '/rx:/{v=$NF} END{print v}')
     printf '%s\n' "${val:-missing}" >>"$dest"
     python3 - "${val:-missing}" "$need" <<'PY' && return 0
@@ -969,6 +1029,10 @@ except ValueError:
     raise SystemExit(1)
 raise SystemExit(0 if n >= need else 1)
 PY
+    now=$(date +%s)
+    if [ $((now - start)) -ge 10 ]; then
+      return 1
+    fi
     sleep 0.3
   done
   return 1
@@ -1012,20 +1076,41 @@ f_side() {
   fi
   sudo -n /usr/sbin/ip addr flush dev "$WLX" >/dev/null 2>&1 || true
   sudo -n /usr/sbin/ip addr add 192.168.13.1/24 dev "$WLX" >/dev/null 2>&1 || true
-  if ! require_txpower; then
-    record F16 FAIL "dongle AP txpower is not 5.00 dBm"
-    record F17 FAIL "dongle AP txpower is not 5.00 dBm"
+  local side_src="source=dongle-AP ch=13 txpower=5.00dBm"
+  local f16_arrivals= f17_arrivals=
+  if ! side_ap_ready "$OUT/f16-ap.txt"; then
+    record F16 FAIL "dongle AP is not type AP on channel 13 at 5.00 dBm"
+    record F17 FAIL "dongle AP is not type AP on channel 13 at 5.00 dBm"
     return
   fi
   # Probe writes IQ_CAPTURE only when iq_len_init>0. The FPGA bit survives
   # rmmod, and the same probe then forces the IQ trigger back to RSSI, which
   # never fires. CSI stays empty until the bit is cleared. wh3d0 is that clear.
-  board_sudo "killall side_ch_ctl 2>/dev/null || true; rmmod side_ch 2>/dev/null || true; insmod '$path'; cd /home/analog/openwifi && ./monitor_ch.sh sdr0 13 && ./side_ch_ctl wh3d0 && ./side_ch_ctl rh3" >"$OUT/f16-insmod.txt" 2>&1 || {
+  # Leave the bit alone until the arrival count is done: arming is the clear.
+  board_sudo "killall side_ch_ctl 2>/dev/null || true; rmmod side_ch 2>/dev/null || true; insmod '$path'; cd /home/analog/openwifi && ./monitor_ch.sh sdr0 13" >"$OUT/f16-insmod.txt" 2>&1 || {
     record F16 FAIL "insmod failed"
     record F17 FAIL "insmod failed"
     return
   }
-  if ! tail -n 4 "$OUT/f16-insmod.txt" | grep -q '0x00000000'; then
+  if ! side_ap_ready "$OUT/f16-source.txt"; then
+    record F16 FAIL "RF source missing before CSI arm: dongle AP is not type AP on channel 13 at 5.00 dBm"
+    record F17 FAIL "RF source missing before CSI arm: dongle AP is not type AP on channel 13 at 5.00 dBm"
+    board_sudo 'rmmod side_ch 2>/dev/null || true' || true
+    return
+  fi
+  f16_arrivals=$(side_rx_delta "$OUT/f16-irq.txt")
+  if ! printf '%s' "$f16_arrivals" | grep -E -q '^[1-9][0-9]*$'; then
+    record F16 FAIL "RF source not heard before CSI arm: ${side_src} arrivals=${f16_arrivals:-NA}"
+    record F17 FAIL "RF source not heard before CSI arm: ${side_src} arrivals=${f16_arrivals:-NA}"
+    board_sudo 'rmmod side_ch 2>/dev/null || true' || true
+    return
+  fi
+  board_sudo 'cd /home/analog/openwifi && ./side_ch_ctl wh3d0 && ./side_ch_ctl rh3' >"$OUT/f16-arm.txt" 2>&1 || {
+    record F16 FAIL "IQ_CAPTURE clear failed"
+    record F17 FAIL "IQ_CAPTURE clear failed"
+    return
+  }
+  if ! awk '/0x[0-9a-fA-F]+/{v=$NF} END{exit !(v=="0x00000000")}' "$OUT/f16-arm.txt"; then
     record F16 FAIL "IQ_CAPTURE did not read back as 0 after wh3d0"
     record F17 FAIL "IQ_CAPTURE did not read back as 0 after wh3d0"
     return
@@ -1037,7 +1122,7 @@ f_side() {
     return
   fi
   if ! wait_side_fifo 474 "$OUT/f16-fifo.txt"; then
-    record F16 FAIL "FIFO stayed below 474 words before the GET: $(tr '\n' ' ' <"$OUT/f16-fifo.txt")"
+    record F16 FAIL "${side_src} arrivals=${f16_arrivals} FIFO stayed below 474 words before the GET: $(tr '\n' ' ' <"$OUT/f16-fifo.txt")"
   else
   python3 - "$OUT/f16-udp.txt" <<'PY' &
 import socket, sys, time
@@ -1073,19 +1158,36 @@ PY
   local packets
   packets=$(awk '/packets/{print $2}' "$OUT/f16-udp.txt" 2>/dev/null || echo 0)
   if grep -q 'ok 1' "$OUT/f16-udp.txt"; then
-    record F16 PASS "UDP port 4000 received $packets CSI datagrams, each a multiple of 3792 bytes"
+    record F16 PASS "${side_src} arrivals=${f16_arrivals} UDP port 4000 received $packets CSI datagrams, each a multiple of 3792 bytes fifo=$(tr '\n' ' ' <"$OUT/f16-fifo.txt")"
   else
-    record F16 FAIL "CSI capture packets=${packets:-0} (need at least 18 datagrams, each a multiple of 3792 bytes). Not a bitstream change. fifo=$(tr '\n' ' ' <"$OUT/f16-fifo.txt")"
+    record F16 FAIL "${side_src} arrivals=${f16_arrivals} CSI capture packets=${packets:-0} (need at least 18 datagrams, each a multiple of 3792 bytes). Not a bitstream change. fifo=$(tr '\n' ' ' <"$OUT/f16-fifo.txt")"
   fi
   fi
   # Reloading side_ch drops the monitor tune. IQ with trigger 0 waits for
-  # an FCS, so the receiver has to be put back on channel 13 before the read.
-  board_sudo "killall side_ch_ctl 2>/dev/null || true; rmmod side_ch && insmod '$path' iq_len_init=4095 && cd /home/analog/openwifi && ./monitor_ch.sh sdr0 13 && ./side_ch_ctl wh3h01 && ./side_ch_ctl rh8" >"$OUT/f17-insmod.txt" 2>&1 || {
+  # an FCS, so the receiver has to be put back on channel 13, and frames
+  # have to be counted, before the capture bit is set.
+  board_sudo "killall side_ch_ctl 2>/dev/null || true; rmmod side_ch && insmod '$path' iq_len_init=4095 && cd /home/analog/openwifi && ./monitor_ch.sh sdr0 13" >"$OUT/f17-insmod.txt" 2>&1 || {
     record F17 FAIL "iq insmod failed"
     return
   }
+  if ! side_ap_ready "$OUT/f17-source.txt"; then
+    record F17 FAIL "RF source missing before IQ arm: dongle AP is not type AP on channel 13 at 5.00 dBm"
+    board_sudo 'rmmod side_ch 2>/dev/null || true' || true
+    return
+  fi
+  f17_arrivals=$(side_rx_delta "$OUT/f17-irq.txt")
+  if ! printf '%s' "$f17_arrivals" | grep -E -q '^[1-9][0-9]*$'; then
+    record F17 FAIL "RF source not heard before IQ arm: ${side_src} arrivals=${f17_arrivals:-NA}"
+    board_sudo 'rmmod side_ch 2>/dev/null || true' || true
+    return
+  fi
+  board_sudo 'cd /home/analog/openwifi && ./side_ch_ctl wh3h01 && ./side_ch_ctl rh8' >"$OUT/f17-arm.txt" 2>&1 || {
+    record F17 FAIL "${side_src} arrivals=${f17_arrivals} IQ arm failed"
+    board_sudo 'rmmod side_ch 2>/dev/null || true' || true
+    return
+  }
   if ! wait_side_fifo 4096 "$OUT/f17-fifo.txt"; then
-    record F17 FAIL "FIFO stayed below 4096 words before the GET: $(tr '\n' ' ' <"$OUT/f17-fifo.txt")"
+    record F17 FAIL "${side_src} arrivals=${f17_arrivals} FIFO stayed below 4096 words before the GET: $(tr '\n' ' ' <"$OUT/f17-fifo.txt")"
     board_sudo 'rmmod side_ch 2>/dev/null || true' || true
     return
   fi
@@ -1119,9 +1221,9 @@ PY
   packets=$(awk '/packets/{print $2}' "$OUT/f17-udp.txt" 2>/dev/null || echo 0)
   board_sudo 'rmmod side_ch 2>/dev/null || true' || true
   if grep -q 'ok 1' "$OUT/f17-udp.txt"; then
-    record F17 PASS "iq_len_init=4095 received $packets datagrams of 32768 bytes"
+    record F17 PASS "${side_src} arrivals=${f17_arrivals} iq_len_init=4095 received $packets datagrams of 32768 bytes fifo=$(tr '\n' ' ' <"$OUT/f17-fifo.txt")"
   else
-    record F17 FAIL "IQ capture packets=${packets:-0} (need at least 14 of 32768 bytes)"
+    record F17 FAIL "${side_src} arrivals=${f17_arrivals} IQ capture packets=${packets:-0} (need at least 14 of 32768 bytes) fifo=$(tr '\n' ' ' <"$OUT/f17-fifo.txt")"
   fi
 }
 
