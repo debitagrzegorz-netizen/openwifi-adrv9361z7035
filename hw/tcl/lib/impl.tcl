@@ -12,7 +12,8 @@ proc hw::directive_map {name} {
   } elseif {$name eq "netdelay"} {
     return {ExtraNetDelay_high AggressiveExplore AggressiveExplore}
   } elseif {$name eq "spread"} {
-    return {SpreadLogic_high Explore AggressiveExplore}
+    # SpreadLogic_* is not a 7-series place directive in 2025.1.
+    return {AltSpreadLogic_high Explore AggressiveExplore}
   } elseif {$name eq "altspread"} {
     return {AltSpreadLogic_medium Explore Explore}
   }

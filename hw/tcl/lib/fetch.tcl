@@ -22,6 +22,12 @@ proc hw::clone_pin {name url rev dest} {
   catch {set head [hw::exec git -C $dest rev-parse HEAD]}
   if {$head ne $rev} {
     puts "P24_FETCH_CHECKOUT $name"
+    # An existing clone may predate the pinned commit.
+    if {[catch {hw::exec git -C $dest cat-file -e "$rev^{commit}"}]} {
+      if {[catch {hw::exec git -C $dest fetch origin} err]} {
+        hw::fail "git fetch $name failed: $err"
+      }
+    }
     if {[catch {hw::exec git -C $dest checkout --detach $rev} err]} {
       hw::fail "checkout $name $rev failed: $err"
     }

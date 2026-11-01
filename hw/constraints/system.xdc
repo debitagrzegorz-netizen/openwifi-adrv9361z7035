@@ -27,15 +27,12 @@
 #set_false_path -through [get_pins i_system_wrapper/system_i/openwifi_ip/rx_intf_0/inst/adc_intf_i/adc_valid_in_bb_domain_reg/Q]
 #set_false_path -through [get_pins i_system_wrapper/system_i/openwifi_ip/rx_intf_0/inst/adc_intf_i/adc_valid_in_bb_domain_reg/R]
 
-# relax cross rf and bb domain control of dac_intf
-set_max_delay 5 -datapath_only -from [get_pins {i_system_wrapper/system_i/openwifi_ip/tx_intf_0/inst/tx_iq_intf_i/csi_fuzzer_i/iq_out_reg[*]/C}] -to [get_pins {i_system_wrapper/system_i/openwifi_ip/tx_intf_0/inst/dac_intf_i/data_from_acc_stage1_reg[*]/D}]
-
-# relax cross rf and bb domain control of dac_intf
-set_false_path -through [get_pins {i_system_wrapper/system_i/openwifi_ip/tx_intf_0/inst/dac_intf_i/xpm_cdc_array_single_inst_ant_flag/syncstages_ff_reg[3][0]/C}]
-set_false_path -through [get_pins {i_system_wrapper/system_i/openwifi_ip/tx_intf_0/inst/dac_intf_i/xpm_cdc_array_single_inst_simple_cdd_flag/syncstages_ff_reg[3][0]/C}]
-set_false_path -through [get_pins {i_system_wrapper/system_i/openwifi_ip/tx_intf_0/inst/dac_intf_i/xpm_cdc_array_single_inst_read_bb_fifo/syncstages_ff_reg[3][0]/C}]
+# dac_intf: the IQ sample crosses through xpm_fifo_async and the control
+# bits through xpm_cdc_array_single; XPM brings their constraints (P25).
 
 # relax cross rf and bb domain control of adc_intf
+# adc_intf is safe for any phase: data_to_bb is taken half a sample period
+# after adc_data_shift changes (P25 Phase B). The 5 ns bound keeps it so.
 set_max_delay 5 -datapath_only -from [get_pins {i_system_wrapper/system_i/openwifi_ip/rx_intf_0/inst/adc_intf_i/adc_data_shift_reg[*]/C}] -to [get_pins {i_system_wrapper/system_i/openwifi_ip/rx_intf_0/inst/adc_intf_i/adc_data_shift_stage1_reg[*]/D}]
 set_max_delay 5 -datapath_only -from [get_pins i_system_wrapper/system_i/openwifi_ip/rx_intf_0/inst/adc_intf_i/adc_valid_count_reg_inv/C] -to [get_pins i_system_wrapper/system_i/openwifi_ip/rx_intf_0/inst/adc_intf_i/adc_valid_decimate_stage1_reg/D]
 set_false_path -through [get_pins {i_system_wrapper/system_i/openwifi_ip/rx_intf_0/inst/adc_intf_i/xpm_cdc_array_single_inst_ant_flag/syncstages_ff_reg[3][*]/C}]
