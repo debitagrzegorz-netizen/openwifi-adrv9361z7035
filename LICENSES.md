@@ -1,9 +1,12 @@
 # Licenses
 
 Scripts and build glue in this repository are AGPL-3.0-or-later unless the
-file says otherwise. Kernel-side patches are GPL-2.0-only. Third-party
-components keep their upstream licenses. This file records the recipe and
-the patch, not a copy of those license texts.
+file says otherwise. That covers `build.sh`, `sw/sdt/gen_sdt.sh`, `scripts/`,
+and `tests/`. Kernel-side patches are GPL-2.0-only. Third-party components
+keep their upstream licenses. The ADI kernel and meta-adi are external and
+are not vendored in this tree. This file is an inventory of the recipes and
+patches here, not the output of a license scanner, and it does not copy the
+upstream license texts.
 
 OpenWiFi sources are taken from open-sdr/openwifi revision
 `75ab6fe3380d44e42de34592c106e755a3c3476a`.
