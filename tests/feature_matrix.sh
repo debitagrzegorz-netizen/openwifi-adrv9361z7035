@@ -257,10 +257,14 @@ EOF
   scp_board "$OUT/dnsmasq.conf" /tmp/p22-dnsmasq.conf
   board_sudo 'killall hostapd dnsmasq wpa_supplicant iperf3 2>/dev/null || true; ip link set sdr0 down || true; iw dev sdr0 set type managed; pa=$(ip -o link show sdr0 | sed -n "s/.*permaddr \([^ ]*\).*/\1/p"); if [ -n "$pa" ]; then ip link set dev sdr0 address "$pa"; fi; ip link set sdr0 up; ip addr show sdr0 | grep -q 192.168.13.1/ || ip addr add 192.168.13.1/24 dev sdr0; cd /home/analog/openwifi && ./agc_settings.sh 1 >/tmp/p22-gain.txt 2>&1; hostapd -B -P /tmp/p22-hostapd.pid /tmp/p22-hostapd.conf > /tmp/p22-hostapd.log 2>&1; dnsmasq --conf-file=/tmp/p22-dnsmasq.conf; echo HOSTAPD_RC:$?'
   local i
-  for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
-    ssh_board 'grep -q AP-ENABLED /tmp/p22-hostapd.log' && return 0
+  # This hostapd often reaches type AP before it prints AP-ENABLED.
+  for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30; do
+    if ssh_board 'grep -q AP-ENABLED /tmp/p22-hostapd.log || iw dev sdr0 info | grep -q "type AP"'; then
+      return 0
+    fi
     sleep 1
   done
+  ssh_board 'echo ---LOG---; cat /tmp/p22-hostapd.log; echo ---IW---; iw dev sdr0 info' >"$OUT/hostapd-fail.txt" 2>&1 || true
   return 1
 }
 
@@ -336,19 +340,24 @@ f2() {
     return
   }
   local line
-  line=$(python3 - "$OUT/f2.txt" "$IMAGE_NAME" <<'PY'
+  # v1.0 has no build-info file. Later images must carry the pinned
+  # SRCREVs and the v1.0 XSA hash. Boot-file hashes are image-specific.
+  line=$(python3 - "$OUT/f2.txt" "$IMAGE_NAME" \
+    "$OPENWIFI_REV" "$OPENWIFI_HW_REV" "$ADI_HDL_REV" "$OPENOFDM_RX_REV" \
+    "$META_ADI_REV" "$V1_0_XSA_SHA" <<'PY'
 import sys
 t = open(sys.argv[1], errors="replace").read()
 image = sys.argv[2]
+expect = sys.argv[3:]
 v1 = ["32ce68fda2f0f638a252e4d4064a33efa037395938bbd48a6349e8e3114d2841",
       "355f897323cf84a62a193cca4b26a120c08464f4fb1fe0a359128787f042a62e",
       "19b47419386a4a8d3472e0265c70cecfacbc537e82cf7e9bc00f83fd159d9fd6"]
 dds = t.count("0x00000002") >= 4 and "0x0D047D79" in t
-info = "BUILDINFO_MISSING" not in t and "openwifi_srcrev=" in t
+info = "BUILDINFO_MISSING" not in t and all(s in t for s in expect)
 hashes = all(s in t for s in v1)
 if image == "v1.0":
-    ok = hashes and dds and info
-    print(("PASS" if ok else "FAIL") + " hashes=%d dds=%d buildinfo=%d" % (hashes, dds, info))
+    ok = hashes and dds
+    print(("PASS" if ok else "FAIL") + " hashes=%d dds=%d buildinfo_not_required present=%d" % (hashes, dds, info))
 else:
     ok = dds and info
     print(("PASS" if ok else "FAIL") + " dds=%d buildinfo=%d" % (dds, info))
@@ -632,27 +641,44 @@ f12() {
 }
 
 f13() {
-  board_sudo 'cd /home/analog/openwifi && oldcw=$(./cw_max_min_cfg.sh); oldcs=$(./difs_disable.sh); oldnav=$(cat /sys/devices/soc0/axi/axi:sdr/csma_cfg0); oldlbt=$(./set_lbt_th.sh | awk "END{print \$NF}"); ./cw_max_min_cfg.sh 1234; echo CW $(./cw_max_min_cfg.sh); ./difs_disable.sh 7; echo DIFS $(cat /sys/devices/soc0/axi/axi:sdr/csma_cfg0); ./nav_disable.sh 3; echo NAV $(cat /sys/devices/soc0/axi/axi:sdr/csma_cfg0); ./set_lbt_th.sh 1000; echo LBT $(./set_lbt_th.sh | awk "END{print \$NF}"); ./cw_max_min_cfg.sh ${oldcw:-0}; echo ${oldcs} > /sys/devices/soc0/axi/axi:sdr/csma_cfg0; ./set_lbt_th.sh ${oldlbt:-0}' >"$OUT/f13.txt" 2>&1 || {
+  # cw_max_min_cfg prints "FPGA  cw max min ...: <8 hex>" and stores hex.
+  # set_lbt_th.sh prints "reg  val: <8 hex>" and takes a decimal argument.
+  # Do not write the show text back to sysfs.
+  board_sudo 'cd /home/analog/openwifi && oldcw=$(./cw_max_min_cfg.sh | awk "/FPGA  cw max min for q3 to q0: [0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]\$/{v=\$NF} END{print v}"); oldlbt=$(./set_lbt_th.sh | awk "/reg  val:/{v=\$NF} END{print v}"); echo OLD_CW ${oldcw:-missing} OLD_LBT ${oldlbt:-missing}; case $oldcw in [0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]) ;; *) echo CW_CAPTURE_FAIL; exit 1;; esac; case $oldlbt in [0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]) ;; *) echo LBT_CAPTURE_FAIL; exit 1;; esac; ./cw_max_min_cfg.sh 1234 >/tmp/p23-cw.txt; echo CW $(awk "/FPGA  cw max min for q3 to q0: [0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]\$/{v=\$NF} END{print v}" /tmp/p23-cw.txt); ./set_lbt_th.sh 1000 >/tmp/p23-lbt.txt; echo LBT $(awk "/reg  val:/{v=\$NF} END{print v}" /tmp/p23-lbt.txt); ./cw_max_min_cfg.sh "$oldcw" >/tmp/p23-cw2.txt; echo CWRESTORE $(awk "/FPGA  cw max min for q3 to q0: [0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]\$/{v=\$NF} END{print v}" /tmp/p23-cw2.txt); ./set_lbt_th.sh $((16#$oldlbt)) >/tmp/p23-lbt2.txt; echo LBTRESTORE $(awk "/reg  val:/{v=\$NF} END{print v}" /tmp/p23-lbt2.txt)' >"$OUT/f13.txt" 2>&1 || {
     record F13 FAIL "channel-access scripts failed"
     return
   }
-  # cw_max_min_cfg.sh prints 00001234. set_lbt_th.sh prints 000003e8 for 1000.
-  if grep -q '00001234' "$OUT/f13.txt" && grep -E -q 'LBT (1000|000003[eE]8)' "$OUT/f13.txt"; then
-    record F13 PASS "cw, difs, nav, lbt written and restored"
-  else
-    record F13 FAIL "read-back mismatch"
-  fi
+  local line
+  line=$(python3 - "$OUT/f13.txt" <<'PY'
+import re, sys
+t = open(sys.argv[1], errors="replace").read()
+def one(label):
+    ms = re.findall(r"(?m)^%s ([0-9A-Fa-f]{8})\s*$" % label, t)
+    return ms[-1].lower() if ms else ""
+cw, lbt, cwr, lbtr = one("CW"), one("LBT"), one("CWRESTORE"), one("LBTRESTORE")
+m = re.search(r"(?m)^OLD_CW (\S+) OLD_LBT (\S+)\s*$", t)
+oldcw = m.group(1).lower() if m else ""
+oldlbt = m.group(2).lower() if m else ""
+hex8 = re.compile(r"[0-9a-f]{8}\Z")
+ok = (cw == "00001234" and lbt == "000003e8" and cwr == oldcw and lbtr == oldlbt
+      and hex8.match(oldcw) and hex8.match(oldlbt))
+print(("PASS" if ok else "FAIL") + " cw=%s lbt=%s restore=%s/%s old=%s/%s" % (cw, lbt, cwr, lbtr, oldcw, oldlbt))
+PY
+)
+  record F13 "${line%% *}" "${line#* }"
 }
 
 f14() {
-  board_sudo 'cd /home/analog/openwifi && ./slice_cfg.sh 0 66554433 10000 0 5000; echo START $(sdrctl dev sdr0 get slice_start0); ./slice_cfg.sh 0 0 0 0 0' >"$OUT/f14.txt" 2>&1 || {
+  # sdrctl takes slice_idx, then slice_start. The read-back prints
+  # "duration N us of slice M".
+  board_sudo 'cd /home/analog/openwifi && ./slice_cfg.sh 0 66554433 10000 0 5000; echo START $(sdrctl dev sdr0 get slice_start); ./slice_cfg.sh 0 0 0 0 0; echo RESTORED $(sdrctl dev sdr0 get slice_start)' >"$OUT/f14.txt" 2>&1 || {
     record F14 FAIL "slice_cfg failed"
     return
   }
-  if grep -q 'START' "$OUT/f14.txt"; then
-    record F14 PASS "slice 0 configured, read back, restored to 0"
+  if grep -E -q 'START .*duration\) 5000us of slice 0' "$OUT/f14.txt" && grep -E -q 'RESTORED .*duration\) 0us of slice 0' "$OUT/f14.txt"; then
+    record F14 PASS "slice 0 start 5000 us read back and restored"
   else
-    record F14 FAIL "no read-back"
+    record F14 FAIL "read-back mismatch"
   fi
 }
 
@@ -802,12 +828,24 @@ f20() {
       echo "P22_MATRIX_HANG reboot $i"
       return
     fi
-    if board_sudo 'cd /home/analog/openwifi && ./wgd.sh' >"$OUT/f20-$i-wgd.txt" 2>&1; then
-      ok=$((ok + 1))
-    else
-      record F20 FAIL "reboot $i wgd.sh failed after $ok successes"
+    # sshd accepts one connection and then refuses the next for a few seconds.
+    local ready=0 r
+    for r in $(seq 1 12); do
+      if board_sudo 'cd /home/analog/openwifi && ./wgd.sh' >"$OUT/f20-$i-wgd.txt" 2>&1; then
+        ready=1
+        break
+      fi
+      if ! grep -q 'Connection refused\|Connection reset\|Connection timed out' "$OUT/f20-$i-wgd.txt"; then
+        record F20 FAIL "reboot $i wgd.sh failed after $ok successes"
+        return
+      fi
+      sleep 5
+    done
+    if [ "$ready" != 1 ]; then
+      record F20 FAIL "reboot $i ssh refused through the readiness window after $ok successes"
       return
     fi
+    ok=$((ok + 1))
   done
   record F20 PASS "10/10 soft reboots reached wgd.sh"
 }
