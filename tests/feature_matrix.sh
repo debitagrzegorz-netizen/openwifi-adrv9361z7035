@@ -335,14 +335,21 @@ PY
   fi
 }
 
+# Cold boot leaves the four DAC muxes at 0. wgd.sh is what writes DDS_SEL 2.
+# F2_IDENTITY is 1 only when the boot identity is acceptable; f2_dds then
+# scores the muxes and is the only place that records a passing F2.
+F2_IDENTITY=0
 f2() {
+  F2_IDENTITY=0
   board_sudo 'sha256sum /boot/system.bit /boot/BOOT.BIN /boot/system.dtb; echo GIT $(/sbin/devmem 0x83C400FC); echo DDS $(/sbin/devmem 0x79024418) $(/sbin/devmem 0x79024458) $(/sbin/devmem 0x79024498) $(/sbin/devmem 0x790244d8); echo BUILDINFO; cat /etc/openwifi-build-info 2>/dev/null || echo BUILDINFO_MISSING' >"$OUT/f2.txt" 2>&1 || {
     record F2 FAIL "ssh or devmem failed"
+    F2_IDENTITY=fail
     return
   }
   local line
   # v1.0 has no build-info file. Later images must carry the pinned
   # SRCREVs and the v1.0 XSA hash. Boot-file hashes are image-specific.
+  # DDS is not scored here: this read is before wgd.sh.
   line=$(python3 - "$OUT/f2.txt" "$IMAGE_NAME" \
     "$OPENWIFI_REV" "$OPENWIFI_HW_REV" "$ADI_HDL_REV" "$OPENOFDM_RX_REV" \
     "$META_ADI_REV" "$V1_0_XSA_SHA" <<'PY'
@@ -353,15 +360,41 @@ expect = sys.argv[3:]
 v1 = ["32ce68fda2f0f638a252e4d4064a33efa037395938bbd48a6349e8e3114d2841",
       "355f897323cf84a62a193cca4b26a120c08464f4fb1fe0a359128787f042a62e",
       "19b47419386a4a8d3472e0265c70cecfacbc537e82cf7e9bc00f83fd159d9fd6"]
-dds = t.count("0x00000002") >= 4 and "0x0D047D79" in t
+git = "0x0D047D79" in t
 info = "BUILDINFO_MISSING" not in t and all(s in t for s in expect)
 hashes = all(s in t for s in v1)
 if image == "v1.0":
-    ok = hashes and dds
-    print(("PASS" if ok else "FAIL") + " hashes=%d dds=%d buildinfo_not_required present=%d" % (hashes, dds, info))
+    ok = hashes and git
+    print(("PASS" if ok else "FAIL") + " hashes=%d git=%d buildinfo_not_required present=%d" % (int(hashes), int(git), int(info)))
 else:
-    ok = dds and info
-    print(("PASS" if ok else "FAIL") + " dds=%d buildinfo=%d" % (dds, info))
+    ok = git and info
+    print(("PASS" if ok else "FAIL") + " git=%d buildinfo=%d" % (int(git), int(info)))
+PY
+)
+  if [ "${line%% *}" = "PASS" ]; then
+    F2_IDENTITY=1
+  else
+    F2_IDENTITY=fail
+    record F2 "${line%% *}" "${line#* }"
+  fi
+}
+
+f2_dds() {
+  if [ "$F2_IDENTITY" != 1 ]; then
+    return
+  fi
+  board_sudo 'echo DDS $(/sbin/devmem 0x79024418) $(/sbin/devmem 0x79024458) $(/sbin/devmem 0x79024498) $(/sbin/devmem 0x790244d8)' >"$OUT/f2-dds.txt" 2>&1 || {
+    record F2 FAIL "post-wgd DDS read failed"
+    return
+  }
+  local line
+  line=$(python3 - "$OUT/f2-dds.txt" <<'PY'
+import re, sys
+d = open(sys.argv[1], errors="replace").read()
+ms = re.findall(r"DDS((?:\s+0x[0-9A-Fa-f]+){4})", d)
+parts = ms[-1].split() if ms else []
+dds = parts == ["0x00000002", "0x00000002", "0x00000002", "0x00000002"]
+print(("PASS" if dds else "FAIL") + " dds=%d buildinfo=1" % int(dds))
 PY
 )
   record F2 "${line%% *}" "${line#* }"
@@ -1064,10 +1097,11 @@ f21() {
   record F21 SKIPPED "no APPROVED-REG; 5 GHz is not tested"
 }
 
-# Order: identity, bring-up, link tests, injection, side channel, reboots last.
+# Order: identity, bring-up, DDS after wgd, link tests, injection, side channel, reboots last.
 f1
 f2
 f4_wgd
+f2_dds
 f3
 f12
 f13

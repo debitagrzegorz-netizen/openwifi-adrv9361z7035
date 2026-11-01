@@ -16,6 +16,8 @@ Rules the harness enforces:
   off except for F19.
 - Channel 13 unless the row names another channel. No regulatory change is
   applied on the host. 5 GHz is skipped.
+- F2 reads the four DAC muxes after `wgd.sh`. Before that script a cold
+  boot reads 0. The required value is still `0x00000002` on all four.
 - F6 is PASS when ping loss is under 1 % and TCP is above 0. It is
   PASS(info) when TCP is above 0, ping loss is 1–3 %, and the scan recorded
   a network on a channel within four of the channel under test. A higher

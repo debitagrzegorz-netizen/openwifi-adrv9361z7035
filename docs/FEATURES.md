@@ -3,7 +3,7 @@
 | ID | Feature | Pass condition |
 |---|---|---|
 | F1 | Boot, eth0 DHCP, SSH, mDNS, UART getty | SSH, an eth0 address, `openwifi.local`, getty on ttyPS0 |
-| F2 | Build traceability | Boot hashes, xpu git rev, DDS_SEL 2 on four DAC channels, `/etc/openwifi-build-info` |
+| F2 | Build traceability | Boot hashes, xpu git rev, DDS_SEL 2 on four DAC channels after `wgd.sh`, `/etc/openwifi-build-info` |
 | F3 | AD9361 init | 40 MSPS, FIR enabled, fast_attack after `rf_init_11n.sh` and `agc_settings.sh 1` |
 | F4 | Modules and IRQ map | `wgd.sh` exits 0 and `check_dtb_irqs.sh` passes on `/sys/firmware/fdt` |
 | F5 | AP HT20 channel 13 | Three A4 runs: ping loss < 1 %, TCP ≥ 22 and ≥ 19 Mbit/s, UDP loss ≤ 0.1 % |
