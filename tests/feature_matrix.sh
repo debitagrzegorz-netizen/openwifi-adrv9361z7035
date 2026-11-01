@@ -437,30 +437,103 @@ PY
   fi
 }
 
+# Survey the test dongle only. A BSS within four channel numbers overlaps a
+# 20 MHz BSS on the channel under test. F6 uses that as the occupancy note.
+scan_occupancy() {
+  local tag=$1
+  board_sudo 'killall hostapd dnsmasq wpa_supplicant iperf3 2>/dev/null || true; ip link set sdr0 down >/dev/null 2>&1 || true' >/dev/null 2>&1 || true
+  nmcli device disconnect "$WLX" >/dev/null 2>&1 || true
+  nmcli connection delete p22-reg >/dev/null 2>&1 || true
+  nmcli device set "$WLX" managed no >/dev/null 2>&1 || true
+  sudo -n /usr/sbin/ip link set "$WLX" down >/dev/null 2>&1 || true
+  sudo -n /usr/sbin/iw dev "$WLX" set type managed >/dev/null 2>&1 || true
+  sudo -n /usr/sbin/ip link set "$WLX" up >/dev/null 2>&1 || true
+  : >"$OUT/scan-${tag}.txt"
+  sudo -n /usr/sbin/iw dev "$WLX" scan >"$OUT/scan-${tag}.txt" 2>"$OUT/scan-${tag}.err" || \
+    sudo -n /usr/sbin/iw dev "$WLX" scan >"$OUT/scan-${tag}.txt" 2>"$OUT/scan-${tag}.err" || true
+  python3 - "$OUT/scan-${tag}.txt" "$OUT/scan-${tag}-summary.txt" <<'PY'
+import re, sys
+raw = open(sys.argv[1], errors="replace").read()
+rows = {ch: [] for ch in range(1, 15)}
+for block in re.split(r"\n(?=BSS )", raw):
+    if not block.startswith("BSS "):
+        continue
+    ds = re.search(r"DS Parameter set: channel (\d+)", block)
+    freq = re.search(r"freq: (\d+)", block)
+    if ds:
+        ch = int(ds.group(1))
+    elif freq and 2412 <= int(freq.group(1)) <= 2472 and (int(freq.group(1)) - 2412) % 5 == 0:
+        ch = 1 + (int(freq.group(1)) - 2412) // 5
+    else:
+        continue
+    if ch not in rows:
+        continue
+    sig = re.search(r"signal: ([-\d.]+) dBm", block)
+    rows[ch].append(sig.group(1) if sig else "?")
+parts = []
+for ch in range(1, 15):
+    items = rows[ch]
+    parts.append("ch%d bss=%d%s" % (ch, len(items), (" " + ",".join(items)) if items else ""))
+line = "; ".join(parts)
+open(sys.argv[2], "w").write(line + "\n")
+print("OCC", line)
+PY
+}
+
 f6() {
-  local ch loss tcp fail=0 detail=""
+  # Informational. Channel 13 stays the gating channel (F5). Loss of at most
+  # 3% is PASS(info) when TCP passes and the scan recorded an adjacent BSS.
+  local ch loss tcp detail="" mode="PASS" klass occ
   for ch in 1 6 11; do
+    scan_occupancy "pre-ch${ch}"
     if ! bringup_ap "$ch" || ! associate; then
       detail+=" ch$ch=NO_ASSOC;"
-      fail=1
+      mode=FAIL
       continue
     fi
     loss=$(ping_loss 192.168.13.1 100 "ch$ch")
     run_iperf "ch$ch" -c 192.168.13.1 -t 10
     tcp=$(mbps "$OUT/ch$ch-iperf.txt")
-    detail+=" ch$ch ping=$loss tcp=$tcp;"
-    python3 - "$loss" "$tcp" <<'PY' || fail=1
-import sys
-loss, tcp = sys.argv[1:]
-ok = loss != "NA" and float(loss) < 1 and tcp != "NA" and float(tcp) > 0
-raise SystemExit(0 if ok else 1)
+    occ=$(tr '\n' ' ' < "$OUT/scan-pre-ch${ch}-summary.txt" 2>/dev/null || true)
+    klass=$(python3 - "$loss" "$tcp" "$OUT/scan-pre-ch${ch}-summary.txt" "$ch" <<'PY'
+import re, sys
+loss, tcp, path, test = sys.argv[1:]
+test = int(test)
+adj = False
+try:
+    text = open(path, errors="replace").read()
+except OSError:
+    text = ""
+for m in re.finditer(r"ch(\d+) bss=(\d+)", text):
+    ch, n = int(m.group(1)), int(m.group(2))
+    if n > 0 and ch != test and abs(ch - test) <= 4:
+        adj = True
+if loss == "NA" or tcp == "NA":
+    print("FAIL")
+elif not (float(tcp) > 0):
+    print("FAIL")
+elif float(loss) < 1:
+    print("PASS")
+elif float(loss) <= 3 and adj:
+    print("INFO")
+else:
+    print("FAIL")
 PY
+)
+    detail+=" ch$ch ping=$loss tcp=$tcp class=$klass occ=[${occ}];"
+    if [ "$klass" = "FAIL" ]; then
+      mode=FAIL
+    elif [ "$klass" = "INFO" ] && [ "$mode" = "PASS" ]; then
+      mode="PASS(info)"
+    fi
   done
-  record F6 "$([ "$fail" = 0 ] && echo PASS || echo FAIL)" "$detail"
+  record F6 "$mode" "$detail"
 }
 
 f7() {
   local ssid
+  # C2 installs this file. The neutral SSID is openwifi-test-ap. The harness
+  # uses the SSID that is in the file, so an older file keeps working.
   ssid=$(awk -F= '/^ssid=/{print $2}' /usr/local/share/openwifi/hostapd-dongle.conf 2>/dev/null || true)
   if [ -z "$ssid" ]; then
     record F7 FAIL "dongle hostapd config missing"
