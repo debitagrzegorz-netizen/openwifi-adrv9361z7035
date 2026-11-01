@@ -271,6 +271,7 @@ p24_set_dict $p24_cell \
   Convolution0_Code0 {1011011} \
   Convolution0_Code1 {1111001} \
   Convolution_Code_0_Radix {Binary} \
+  Data_Format {Offset_Binary} \
   Puncturing {External} \
   Reduced_Latency {true} \
   TREADY {false} \

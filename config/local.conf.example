@@ -32,6 +32,8 @@ HW_JOBS=8
 # EQUIV_HWH=
 # Reference SDT directory (from the v1.0 XSA) for the SDT equivalence gate.
 # EQUIV_SDT=
+# Reference directory of v1.0 sub-IP xci files (openofdm_rx) for the sub-IP gate.
+# EQUIV_SUBIP=
 
 # Set to 1 only when the pinned ADI HDL declares a different Vivado version.
 # ADI_IGNORE_VERSION_CHECK=

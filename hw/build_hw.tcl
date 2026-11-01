@@ -127,7 +127,8 @@ proc hw::stage_hash {stage} {
       set files [list \
         [hw::lib_file gates] \
         [file join $::hw::hwdir known_critical_warnings.txt] \
-        [file join $::hw::hwdir scripts compare_hwh.py]]
+        [file join $::hw::hwdir scripts compare_hwh.py] \
+        [file join $::hw::hwdir scripts compare_subips.py]]
       set ref [hw::cfg_get EQUIV_HWH]
       set ref_sum none
       if {$ref ne "" && [file isfile $ref]} {

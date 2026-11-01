@@ -226,6 +226,23 @@ proc hw::compare_sdt {} {
   puts "P24_SDT_EQUIV_OK"
 }
 
+# The hwh covers the block-design cells only. The sub-IPs inside the
+# packaged OpenWiFi IPs (openofdm_rx: viterbi, xfft, ...) must match the
+# v1.0 xci files in EQUIV_SUBIP: same model parameters and same user-set
+# configuration. P25 found the viterbi Data_Format this way.
+proc hw::compare_subips {} {
+  set ref [hw::cfg_get EQUIV_SUBIP]
+  if {$ref eq "" || ![file isdirectory $ref]} {
+    hw::fail "set EQUIV_SUBIP in local.conf to the reference sub-IP xci directory"
+  }
+  set out [file join [hw::report_dir] subip-diff.txt]
+  set script [file join $::hw::hwdir scripts compare_subips.py]
+  if {[catch {hw::exec python3 $script $ref [file join $::hw::build ip_repo openwifi] $out} err]} {
+    hw::fail "sub-IP equivalence failed: $err"
+  }
+  puts "P24_SUBIP_EQUIV_OK"
+}
+
 proc hw::read_file {path} {
   set fh [open $path r]
   set body [read $fh]
@@ -307,6 +324,7 @@ proc hw::stage_report {} {
   if {[catch {hw::exec python3 $script $ref $hwh $diff} err]} {
     hw::fail "hwh equivalence failed: $err"
   }
+  hw::compare_subips
   hw::compile_sdt_dtb
   hw::compare_sdt
   hw::check_sources_clean
