@@ -1,0 +1,155 @@
+--- a/side_ch/side_ch.c
++++ b/side_ch/side_ch.c
+@@ -345,57 +345,90 @@
+ 	return(0);
+ }
+ 
++static void side_ch_dma_abort(void)
++{
++	/* This channel only. dmaengine_terminate_all on the shared controller
++	 * would also stop sdr TX. */
++	if (!IS_ERR_OR_NULL(chan_to_ps))
++		dmaengine_terminate_sync(chan_to_ps);
++	chan_to_ps_cookie = 0;
++}
++
+ static int get_side_info(int num_eq, int iq_len) {
+-	// int err = 0;//, i;
+ 	struct scatterlist chan_to_ps_sg[1];
+ 	enum dma_status status;
+ 	enum dma_ctrl_flags flags = DMA_CTRL_ACK | DMA_PREP_INTERRUPT;
+-	int num_dma_symbol, num_dma_symbol_per_trans, side_info_buf_size;
++	int num_dma_symbol_per_trans, side_info_buf_size, report_size;
++	u32 available, dma_words, reg_num;
+ 	dma_addr_t side_info_buf_dma;
+ 	struct dma_device *chan_to_ps_dev = chan_to_ps->device;
+ 	struct completion chan_to_ps_cmp;
+ 	struct dma_async_tx_descriptor *chan_to_ps_d = NULL;
+-	unsigned long chan_to_ps_tmo =	msecs_to_jiffies(100);
++	unsigned long chan_to_ps_tmo = msecs_to_jiffies(100);
+ 
+ 	if (side_info_buf==NULL) {
+ 		printk("%s get_side_info WARNING side_info_buf==NULL\n", side_ch_compatible_str);
+ 		return(-1);
+ 	}
+ 
+-	/*
+-	 * chan_to_ps_cookie is 0 until the first submit. On kernel 6.12,
+-	 * dma_async_is_tx_complete(cookie 0) is not DMA_COMPLETE, so the
+-	 * original check returned before any descriptor was queued.
+-	 * Skip it only when no transfer has been submitted.
+-	 */
++	/* A timed-out descriptor stays incomplete. Returning here used to
++	 * skip every later GET, so a FIFO that was already queued was never
++	 * read again. Retire that one channel and arm a new descriptor. */
+ 	if (chan_to_ps_cookie != 0) {
+ 		status = dma_async_is_tx_complete(chan_to_ps, chan_to_ps_cookie, NULL, NULL);
+-		if (status!=DMA_COMPLETE) {
+-			printk("%s get_side_info WARNING status!=DMA_COMPLETE (%d)\n", side_ch_compatible_str, status);
+-			return(-1);
+-		}
++		if (status!=DMA_COMPLETE)
++			side_ch_dma_abort();
+ 	}
+ 
+ 	set_user_nice(current, 10);
+ 
+-	if (iq_len>0)
++	available = SIDE_CH_REG_M_AXIS_DATA_COUNT_read();
++	if (available == 0)
++		return(-2);
++
++	if (iq_len>0) {
++		/* Reg 20 steps by iq_len+1 (a timestamp plus iq_len samples).
++		 * side_ch.v passes slv_reg2-1 to the AXIS reader, and that
++		 * reader emits one more beat than the value it is given, so
++		 * the register write equals the number of words moved.
++		 * One frame per GET. */
+ 		num_dma_symbol_per_trans = 1+iq_len;
+-	else
++		if (available < (u32)num_dma_symbol_per_trans)
++			return(-2);
++		dma_words = (u32)num_dma_symbol_per_trans;
++		if (dma_words > (u32)(max_side_info_buf_size/8))
++			return(-2);
++		reg_num = dma_words;
++		report_size = num_dma_symbol_per_trans*8;
++	} else {
+ 		num_dma_symbol_per_trans = HEADER_LEN + CSI_LEN + num_eq*EQUALIZER_LEN;
+-	//set number of dma symbols expected to ps
+-	num_dma_symbol = SIDE_CH_REG_M_AXIS_DATA_COUNT_read();
+-	// printk("%s get_side_info m axis data count %d per trans %d\n", side_ch_compatible_str, num_dma_symbol, num_dma_symbol_per_trans);
+-	num_dma_symbol = num_dma_symbol_per_trans*(num_dma_symbol/num_dma_symbol_per_trans);
+-	// printk("%s get_side_info actual num dma symbol %d\n", side_ch_compatible_str, num_dma_symbol);
+-	if (num_dma_symbol == 0)
+-		return(-2);
++		dma_words = (u32)num_dma_symbol_per_trans*(available/(u32)num_dma_symbol_per_trans);
++		if (dma_words == 0)
++			return(-2);
++		if (dma_words > (u32)(max_side_info_buf_size/8))
++			dma_words = ((u32)(max_side_info_buf_size/8)/(u32)num_dma_symbol_per_trans)*(u32)num_dma_symbol_per_trans;
++		if (dma_words == 0)
++			return(-2);
++		/* Same register rule as IQ: the write equals the word count. */
++		reg_num = dma_words;
++		report_size = dma_words*8;
++	}
+ 
+-	side_info_buf_size = num_dma_symbol*8;
++	side_info_buf_size = dma_words*8;
+ 	side_info_buf_dma = dma_map_single(chan_to_ps_dev->dev, side_info_buf, side_info_buf_size, DMA_FROM_DEVICE);
+ 	if (dma_mapping_error(chan_to_ps_dev->dev, side_info_buf_dma)) {
+ 		printk("%s get_side_info WARNING chan_to_ps_dev DMA mapping error\n", side_ch_compatible_str);
+ 		return(-3);
+ 	}
++	if (iq_len>0) {
++		static int announced;
++		if (!announced) {
++			announced = 1;
++			printk(KERN_INFO "%s get_side_info iq dma_words=%u reg=%u len=%d page_off=%u\n",
++				side_ch_compatible_str, dma_words, reg_num, side_info_buf_size,
++				(unsigned)(side_info_buf_dma & 0xfff));
++		}
++	}
+ 
+ 	sg_init_table(chan_to_ps_sg, 1);
+ 	sg_dma_address(&chan_to_ps_sg[0]) = side_info_buf_dma;
+@@ -414,25 +447,30 @@
+ 	chan_to_ps_cookie = chan_to_ps_d->tx_submit(chan_to_ps_d);
+ 	if (dma_submit_error(chan_to_ps_cookie)) {
+ 		printk("%s get_side_info WARNING dma_submit_error\n", side_ch_compatible_str);
++		chan_to_ps_cookie = 0;
+ 		goto err_dst_buf_with_unmap;
+ 	}
+ 
+-	SIDE_CH_REG_NUM_DMA_SYMBOL_write(num_dma_symbol); //dma from fpga will start automatically
+-
++	/* Arm the descriptor before the FPGA write. That write starts the
++	 * reader at once. If TVALID rises while TREADY is still low, a FIFO
++	 * that was already full is not consumed. */
+ 	dma_async_issue_pending(chan_to_ps);
++	SIDE_CH_REG_NUM_DMA_SYMBOL_write(reg_num);
+ 
+ 	chan_to_ps_tmo = wait_for_completion_timeout(&chan_to_ps_cmp, chan_to_ps_tmo);
+ 	status = dma_async_is_tx_complete(chan_to_ps, chan_to_ps_cookie, NULL, NULL);
+-	if (chan_to_ps_tmo == 0) {
+-		printk("%s get_side_info WARNING chan_to_ps_tmo == 0\n", side_ch_compatible_str);
+-		goto err_dst_buf_with_unmap;
+-	} else if (status != DMA_COMPLETE) {
+-		printk("%s get_side_info WARNING chan_to_ps status != DMA_COMPLETE\n", side_ch_compatible_str);
++	if (chan_to_ps_tmo == 0 || status != DMA_COMPLETE) {
++		if (chan_to_ps_tmo == 0)
++			printk("%s get_side_info WARNING chan_to_ps_tmo == 0\n", side_ch_compatible_str);
++		else
++			printk("%s get_side_info WARNING chan_to_ps status != DMA_COMPLETE\n", side_ch_compatible_str);
++		side_ch_dma_abort();
+ 		goto err_dst_buf_with_unmap;
+ 	}
+ 
++	dma_sync_single_for_cpu(chan_to_ps_dev->dev, side_info_buf_dma, side_info_buf_size, DMA_FROM_DEVICE);
+ 	dma_unmap_single(chan_to_ps_dev->dev, side_info_buf_dma, side_info_buf_size, DMA_FROM_DEVICE);
+-	return(side_info_buf_size);
++	return(report_size);
+ 
+ err_dst_buf_with_unmap:
+ 	dma_unmap_single(chan_to_ps_dev->dev, side_info_buf_dma, side_info_buf_size, DMA_FROM_DEVICE);

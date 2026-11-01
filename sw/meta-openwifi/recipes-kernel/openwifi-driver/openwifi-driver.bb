@@ -7,6 +7,7 @@ inherit module
 SRC_URI = "git://${OPENWIFI_REPO};protocol=file;branch=${OPENWIFI_BRANCH};destsuffix=git \
     file://0001-mac80211-txpower-to-ad9361-atten.patch \
     file://0002-side-ch-clear-iq-capture-on-csi-probe.patch \
+    file://0003-side-ch-read-queued-iq-fifo.patch \
 "
 SRCREV = "${OPENWIFI_REV}"
 S = "${WORKDIR}/git/driver"
