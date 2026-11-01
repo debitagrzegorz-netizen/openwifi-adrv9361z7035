@@ -487,20 +487,50 @@ network={
 }
 EOF
   scp_board "$OUT/wpa.conf" /tmp/p22-wpa.conf
-  board_sudo 'ip link set sdr0 down; iw dev sdr0 set type managed; ip link set sdr0 up; iw dev sdr0 set power_save off; ip addr flush dev sdr0; ip addr add 192.168.13.1/24 dev sdr0; wpa_supplicant -B -i sdr0 -c /tmp/p22-wpa.conf' >"$OUT/f7-wpa.txt" 2>&1 || true
-  sudo -n /usr/sbin/ip addr add 192.168.13.19/24 dev "$WLX" >/dev/null 2>&1 || true
-  sleep 4
-  local loss
-  loss=$(ping_loss 192.168.13.1 20 f7)
-  run_iperf f7 -c 192.168.13.1 -t 10
-  local tcp
+  # Dongle is the AP at .1. The board is the station at .19. The other way
+  # around makes the host answer its own ping.
+  sudo -n /usr/sbin/ip addr flush dev "$WLX" >/dev/null 2>&1 || true
+  sudo -n /usr/sbin/ip addr add 192.168.13.1/24 dev "$WLX" || true
+  if ! require_txpower; then
+    record F7 FAIL "dongle txpower is not 5.00 dBm"
+    return
+  fi
+  board_sudo 'ip link set sdr0 down; iw dev sdr0 set type managed; ip link set sdr0 up; iw dev sdr0 set power_save off; ip addr flush dev sdr0; ip addr add 192.168.13.19/24 dev sdr0; wpa_supplicant -B -i sdr0 -c /tmp/p22-wpa.conf' >"$OUT/f7-wpa.txt" 2>&1 || true
+  local i ready=0
+  for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+    ssh_board 'iw dev sdr0 link' >"$OUT/f7-link.txt" 2>&1 || true
+    if grep -q Connected "$OUT/f7-link.txt"; then
+      ready=1
+      break
+    fi
+    sleep 1
+  done
+  if [ "$ready" != 1 ]; then
+    record F7 FAIL "ssid=$ssid not associated"
+    return
+  fi
+  if ! ip route get 192.168.13.19 | grep -q 'src 192.168.13.1'; then
+    record F7 FAIL "host route to the station is not the dongle"
+    return
+  fi
+  local loss bloss tcp rev
+  loss=$(ping_loss 192.168.13.19 100 f7)
+  board_sudo 'ping -c 100 -i 0.2 -W 1 192.168.13.1' >"$OUT/f7-board-ping.txt" 2>&1 || true
+  bloss=$(python3 - "$OUT/f7-board-ping.txt" <<'PY'
+import re, sys
+t = open(sys.argv[1], errors="replace").read()
+m = re.search(r"(\d+) packets transmitted, (\d+) (?:packets )?received,.*?([0-9.]+)% packet loss", t, re.S)
+print(m.group(3) if m else "NA")
+PY
+)
+  run_iperf f7 -c 192.168.13.19 -t 10
+  run_iperf f7-rev -c 192.168.13.19 -R -t 10
   tcp=$(mbps "$OUT/f7-iperf.txt")
-  # Reverse direction: board pings the dongle.
-  board_sudo 'ping -c 10 -W 1 192.168.13.19' >"$OUT/f7-board-ping.txt" 2>&1 || true
-  if grep -q 'bytes from' "$OUT/f7-board-ping.txt" && [ "$loss" != "NA" ] && python3 -c "import sys; sys.exit(0 if float('$loss')<50 else 1)"; then
-    record F7 PASS "ssid=$ssid ping_loss=$loss tcp=$tcp"
+  rev=$(mbps "$OUT/f7-rev-iperf.txt")
+  if [ "$loss" != "NA" ] && [ "$bloss" != "NA" ] && [ "$tcp" != "NA" ] && [ "$rev" != "NA" ] && python3 -c "import sys; sys.exit(0 if float('$loss')<1 and float('$bloss')<1 else 1)"; then
+    record F7 PASS "ssid=$ssid ping_loss host=$loss board=$bloss tcp=$tcp rev=$rev"
   else
-    record F7 FAIL "ssid=$ssid ping_loss=$loss tcp=$tcp"
+    record F7 FAIL "ssid=$ssid ping_loss host=$loss board=$bloss tcp=$tcp rev=$rev"
   fi
   sudo -n /usr/local/sbin/openwifi-hostapd-ctl stop >/dev/null 2>&1 || true
 }
