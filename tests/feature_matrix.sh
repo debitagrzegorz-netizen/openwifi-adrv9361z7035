@@ -794,29 +794,33 @@ import socket, sys, time
 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 s.bind(("0.0.0.0", 4000))
 s.settimeout(1)
-n = 0
-end = time.time() + 8
+sizes = []
+end = time.time() + 12
 while time.time() < end:
     try:
         data, _ = s.recvfrom(65535)
-        n += len(data)
+        sizes.append(len(data))
     except socket.timeout:
         pass
-open(sys.argv[1], "w").write("bytes %d\n" % n)
+ok = len(sizes) >= 18 and all(n in (3792, 7584) for n in sizes)
+open(sys.argv[1], "w").write(
+    "packets %d bytes %d ok %d sizes %s\n"
+    % (len(sizes), sum(sizes), int(ok), ",".join(str(n) for n in sizes[:24]))
+)
 PY
   local py=$!
   sleep 0.3
   board_sudo "cd /home/analog/openwifi && ./side_ch_ctl g -s ${host}" >"$OUT/f16-ctl.txt" 2>&1 &
   local ctl=$!
-  sleep 8
+  sleep 12
   kill "$ctl" 2>/dev/null || true
   wait "$py" || true
-  local bytes
-  bytes=$(awk '/bytes/{print $2}' "$OUT/f16-udp.txt" 2>/dev/null || echo 0)
-  if [ "${bytes:-0}" -gt 0 ]; then
-    record F16 PASS "UDP port 4000 received $bytes bytes"
+  local packets
+  packets=$(awk '/packets/{print $2}' "$OUT/f16-udp.txt" 2>/dev/null || echo 0)
+  if grep -q 'ok 1' "$OUT/f16-udp.txt"; then
+    record F16 PASS "UDP port 4000 received $packets CSI datagrams of 3792 or 7584 bytes"
   else
-    record F16 FAIL "0 bytes on UDP 4000 (same symptom as P18 Phase 4). side_ch_ctl log captured. Not a bitstream change."
+    record F16 FAIL "CSI capture packets=${packets:-0} (need at least 18 of 3792 or 7584 bytes). Not a bitstream change."
   fi
   board_sudo "rmmod side_ch; insmod '$path' iq_len_init=4095; cd /home/analog/openwifi && ./side_ch_ctl wh3h01" >"$OUT/f17-insmod.txt" 2>&1 || {
     record F17 FAIL "iq insmod failed"
@@ -827,29 +831,33 @@ import socket, sys, time
 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 s.bind(("0.0.0.0", 4000))
 s.settimeout(1)
-n = 0
-end = time.time() + 8
+sizes = []
+end = time.time() + 12
 while time.time() < end:
     try:
         data, _ = s.recvfrom(65535)
-        n += len(data)
+        sizes.append(len(data))
     except socket.timeout:
         pass
-open(sys.argv[1], "w").write("bytes %d\n" % n)
+ok = len(sizes) >= 14 and all(n == 32768 for n in sizes)
+open(sys.argv[1], "w").write(
+    "packets %d bytes %d ok %d sizes %s\n"
+    % (len(sizes), sum(sizes), int(ok), ",".join(str(n) for n in sizes[:24]))
+)
 PY
   py=$!
   sleep 0.3
   board_sudo "cd /home/analog/openwifi && ./side_ch_ctl g -s ${host}" >"$OUT/f17-ctl.txt" 2>&1 &
   ctl=$!
-  sleep 8
+  sleep 12
   kill "$ctl" 2>/dev/null || true
   wait "$py" || true
-  bytes=$(awk '/bytes/{print $2}' "$OUT/f17-udp.txt" 2>/dev/null || echo 0)
+  packets=$(awk '/packets/{print $2}' "$OUT/f17-udp.txt" 2>/dev/null || echo 0)
   board_sudo 'rmmod side_ch 2>/dev/null || true' || true
-  if [ "${bytes:-0}" -gt 0 ]; then
-    record F17 PASS "iq_len_init=4095 UDP bytes=$bytes"
+  if grep -q 'ok 1' "$OUT/f17-udp.txt"; then
+    record F17 PASS "iq_len_init=4095 received $packets datagrams of 32768 bytes"
   else
-    record F17 FAIL "iq capture delivered 0 bytes"
+    record F17 FAIL "IQ capture packets=${packets:-0} (need at least 14 of 32768 bytes)"
   fi
 }
 
