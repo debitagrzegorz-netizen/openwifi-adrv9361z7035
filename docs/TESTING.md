@@ -22,6 +22,8 @@ Rules the harness enforces:
   write of 0 must remove the `SYSFS` line. When the captured value was 0,
   the FPGA register is not required to return to 0. LBT still round-trips,
   including a restore of 0.
+- F11 injects only after the board pcap file exists. The decoded-frame
+  gate stays at least 5 per cell.
 - F6 is PASS when ping loss is under 1 % and TCP is above 0. It is
   PASS(info) when TCP is above 0, ping loss is 1–3 %, and the scan recorded
   a network on a channel within four of the channel under test. A higher

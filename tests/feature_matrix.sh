@@ -784,13 +784,19 @@ f11() {
     record F11 FAIL "host monitor failed"
     return
   fi
-  local mode idx count fail=0 detail=""
+  local mode idx count fail=0 detail="" k bp
   for spec in "g 0" "g 7" "n 0" "n 7"; do
     set -- $spec
     mode=$1; idx=$2
-    board_sudo 'tcpdump -n -i sdr0 -c 10 -w /tmp/p22-f11.pcap' >/dev/null 2>&1 &
-    local bp=$!
-    sleep 0.4
+    board_sudo 'rm -f /tmp/p22-f11.pcap; tcpdump -n -i sdr0 -c 10 -w /tmp/p22-f11.pcap' >/dev/null 2>&1 &
+    bp=$!
+    # The capture is started over SSH. Inject only after the pcap file exists,
+    # so a slow login cannot consume the 20-frame burst before tcpdump listens.
+    for k in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+      ssh_board 'test -e /tmp/p22-f11.pcap' && break
+      sleep 0.2
+    done
+    sleep 0.2
     sudo -n /usr/local/sbin/inject_80211 -m "$mode" -r "$idx" -t d -n 20 -d 20000 -s 100 -a 000000000001 -b 000000c0ffee "$WLX" >"$OUT/f11-${mode}-r${idx}.txt" 2>&1 || true
     reap_pid "$bp"
     board_sudo 'killall tcpdump 2>/dev/null || true' >/dev/null 2>&1 || true
