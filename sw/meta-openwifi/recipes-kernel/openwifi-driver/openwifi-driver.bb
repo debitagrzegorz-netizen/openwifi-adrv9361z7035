@@ -4,7 +4,9 @@ LIC_FILES_CHKSUM = "file://../LICENSE;md5=73f1eb20517c55bf9493b7dd6e480788"
 
 inherit module
 
-SRC_URI = "git://${OPENWIFI_REPO};protocol=file;branch=${OPENWIFI_BRANCH};destsuffix=git"
+SRC_URI = "git://${OPENWIFI_REPO};protocol=file;branch=${OPENWIFI_BRANCH};destsuffix=git \
+    file://0001-mac80211-txpower-to-ad9361-atten.patch \
+"
 SRCREV = "${OPENWIFI_REV}"
 S = "${WORKDIR}/git/driver"
 

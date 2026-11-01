@@ -1,0 +1,62 @@
+--- a/sdr.c
++++ b/sdr.c
+@@ -2295,6 +2295,50 @@
+   return 0;
+ }
+ 
++/* 0 mdB is the probe attenuation. Linux 6.12 has no .set_txpower;
++ * iw txpower arrives as BSS_CHANGED_TXPOWER with dBm in info->txpower.
++ * AUTOMATIC, including interface start, leaves the chip alone. 20 dBm
++ * stays at 0 mdB. Each dBm below that adds 1000 mdB on chains already on.
++ */
++#define OPENWIFI_TXPOWER_REF_DBM 20
++
++static void openwifi_apply_mac80211_txpower(struct openwifi_priv *priv,
++					    struct ieee80211_bss_conf *info)
++{
++  int requested, delta, atten, cur, chain, err;
++
++  if (info->txpower == INT_MIN ||
++      info->txpower_type == NL80211_TX_POWER_AUTOMATIC) {
++    printk("%s openwifi txpower leave default type %d power %d\n",
++      sdr_compatible_str, info->txpower_type, info->txpower);
++    return;
++  }
++
++  requested = info->txpower;
++  delta = OPENWIFI_TXPOWER_REF_DBM - requested;
++  if (delta < 0)
++    delta = 0;
++  atten = delta * 1000;
++  if (atten > 89000)
++    atten = 89000;
++
++  for (chain = 1; chain <= 2; chain++) {
++    cur = ad9361_get_tx_atten(priv->ad9361_phy, chain);
++    if (cur < 0 || cur >= AD9361_RADIO_OFF_TX_ATT)
++      continue;
++    if (chain == 1)
++      err = ad9361_set_tx_atten(priv->ad9361_phy, atten, true, false, true);
++    else
++      err = ad9361_set_tx_atten(priv->ad9361_phy, atten, false, true, true);
++    if (err < 0)
++      printk("%s openwifi txpower WARNING ad9361_set_tx_atten ant%d %d FAIL\n",
++        sdr_compatible_str, chain - 1, atten);
++    else
++      printk("%s openwifi txpower ad9361_set_tx_atten ant%d %d mdB for %d dBm\n",
++        sdr_compatible_str, chain - 1, atten, requested);
++  }
++}
++
+ static void openwifi_bss_info_changed(struct ieee80211_hw *dev,
+ 				     struct ieee80211_vif *vif,
+ 				     struct ieee80211_bss_conf *info,
+@@ -2326,7 +2370,7 @@
+   }
+ 
+   if (changed & BSS_CHANGED_TXPOWER)
+-    printk("%s openwifi_bss_info_changed WARNING BSS_CHANGED_TXPOWER %x\n",sdr_compatible_str,info->txpower);
++    openwifi_apply_mac80211_txpower(priv, info);
+ 
+   if (changed & BSS_CHANGED_ERP_CTS_PROT)
+     printk("%s openwifi_bss_info_changed WARNING BSS_CHANGED_ERP_CTS_PROT %x\n",sdr_compatible_str,info->use_cts_prot);
