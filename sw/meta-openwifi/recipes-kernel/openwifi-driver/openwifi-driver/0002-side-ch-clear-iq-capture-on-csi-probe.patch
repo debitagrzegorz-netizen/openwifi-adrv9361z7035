@@ -1,0 +1,14 @@
+--- a/side_ch/side_ch.c
++++ b/side_ch/side_ch.c
+@@ -589,6 +589,11 @@ static int dev_probe(struct platform_device *pdev)
+ 		SIDE_CH_REG_IQ_LEN_write(iq_len_init);
+ 		SIDE_CH_REG_IQ_TRIGGER_write(0); // trigger is set to fcs ok/nok (both)
+ 	}
++	else {
++		/* The bit survives rmmod. Leaving it set, then forcing the
++		 * trigger back to RSSI above, disables both CSI and IQ. */
++		SIDE_CH_REG_IQ_CAPTURE_write(0);
++	}
+ 
+ 	SIDE_CH_REG_CONFIG_write(0x0001); // allow all packets by default; bit12 FC; bit13 addr1; bit14 addr2
+ 
