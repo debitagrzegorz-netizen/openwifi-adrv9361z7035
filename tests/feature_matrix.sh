@@ -25,8 +25,8 @@ fi
 STAMP=$(date +%Y%m%d)
 OUT=${OUT:-$ROOT/build/features/${IMAGE_NAME}-${STAMP}}
 mkdir -p "$OUT"
-REPORT=$ROOT/build/features/FEATURES-${IMAGE_NAME}-${STAMP}.md
-JSON=$ROOT/build/features/FEATURES-${IMAGE_NAME}-${STAMP}.json
+REPORT=${REPORT:-$ROOT/build/features/FEATURES-${IMAGE_NAME}-${STAMP}.md}
+JSON=${JSON:-$ROOT/build/features/FEATURES-${IMAGE_NAME}-${STAMP}.json}
 FIXED_SIDE_CH_SHA=939c412804e475c95cc76253811a8686d9411a16df48d58764ee05b9cb1fc02e
 IPERF_CMD=${IPERF3:-iperf3}
 KH=${BOARD_KNOWN_HOSTS:-}
@@ -669,14 +669,14 @@ PY
 }
 
 f14() {
-  # sdrctl takes slice_idx, then slice_start. The read-back prints
-  # "duration N us of slice M".
-  board_sudo 'cd /home/analog/openwifi && ./slice_cfg.sh 0 66554433 10000 0 5000; echo START $(sdrctl dev sdr0 get slice_start); ./slice_cfg.sh 0 0 0 0 0; echo RESTORED $(sdrctl dev sdr0 get slice_start)' >"$OUT/f14.txt" 2>&1 || {
+  # Arguments are slice, mac, period, start, end. Read-back prints
+  # "duration N us of slice M". Start and end must both move, then return to 0.
+  board_sudo 'cd /home/analog/openwifi && ./slice_cfg.sh 0 66554433 10000 5000 8000; echo START $(sdrctl dev sdr0 get slice_start); echo END $(sdrctl dev sdr0 get slice_end); ./slice_cfg.sh 0 0 0 0 0; echo RESTORED $(sdrctl dev sdr0 get slice_start); echo ENDREST $(sdrctl dev sdr0 get slice_end)' >"$OUT/f14.txt" 2>&1 || {
     record F14 FAIL "slice_cfg failed"
     return
   }
-  if grep -E -q 'START .*duration\) 5000us of slice 0' "$OUT/f14.txt" && grep -E -q 'RESTORED .*duration\) 0us of slice 0' "$OUT/f14.txt"; then
-    record F14 PASS "slice 0 start 5000 us read back and restored"
+  if grep -E -q 'START .*duration\) 5000us of slice 0' "$OUT/f14.txt" && grep -E -q 'END .*duration\) 8000us of slice 0' "$OUT/f14.txt" && grep -E -q 'RESTORED .*duration\) 0us of slice 0' "$OUT/f14.txt" && grep -E -q 'ENDREST .*duration\) 0us of slice 0' "$OUT/f14.txt"; then
+    record F14 PASS "slice 0 start 5000 us and end 8000 us read back, then restored"
   else
     record F14 FAIL "read-back mismatch"
   fi
