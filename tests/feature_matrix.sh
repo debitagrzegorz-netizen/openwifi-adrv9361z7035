@@ -882,6 +882,32 @@ f20() {
   local i ok=0
   for i in 1 2 3 4 5 6 7 8 9 10; do
     board_sudo 'sync; reboot' >/dev/null 2>&1 || true
+    # reboot returns while this boot's sshd is still answering. An immediate
+    # UP is that same boot. Wait until SSH has stayed down, then wait for
+    # the new boot. "No route to host" is the link dropping, not a wgd.sh error.
+    sleep 3
+    local down=0 miss=0 d
+    for d in $(seq 1 40); do
+      if ssh_board 'echo STILL' >/dev/null 2>&1; then
+        miss=0
+      else
+        miss=$((miss + 1))
+        if [ "$miss" -ge 2 ]; then
+          sleep 5
+          if ! ssh_board 'echo STILL' >/dev/null 2>&1; then
+            down=1
+            break
+          fi
+          miss=0
+        fi
+      fi
+      sleep 2
+    done
+    if [ "$down" != 1 ]; then
+      record F20 FAIL "reboot $i did not drop SSH after $ok successes"
+      return
+    fi
+    echo "P22_F20 reboot $i ssh dropped"
     local up=0 w
     for w in $(seq 1 40); do
       if ssh_board 'echo UP' >"$OUT/f20-$i-up.txt" 2>&1; then
@@ -895,14 +921,14 @@ f20() {
       echo "P22_MATRIX_HANG reboot $i"
       return
     fi
-    # sshd accepts one connection and then refuses the next for a few seconds.
+    # sshd and the ethernet link come back a few seconds apart.
     local ready=0 r
     for r in $(seq 1 12); do
       if board_sudo 'cd /home/analog/openwifi && ./wgd.sh' >"$OUT/f20-$i-wgd.txt" 2>&1; then
         ready=1
         break
       fi
-      if ! grep -q 'Connection refused\|Connection reset\|Connection timed out' "$OUT/f20-$i-wgd.txt"; then
+      if ! grep -q 'Connection refused\|Connection reset\|Connection timed out\|No route to host\|Network is unreachable\|Connection closed' "$OUT/f20-$i-wgd.txt"; then
         record F20 FAIL "reboot $i wgd.sh failed after $ok successes"
         return
       fi
