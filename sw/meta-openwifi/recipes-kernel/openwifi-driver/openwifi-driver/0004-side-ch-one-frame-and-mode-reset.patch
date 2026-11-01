@@ -1,0 +1,143 @@
+--- a/side_ch/side_ch.c
++++ b/side_ch/side_ch.c
+@@ -354,6 +354,51 @@
+ 	chan_to_ps_cookie = 0;
+ }
+ 
++/* Register 0 bit 0 resets the m_axis FIFO reader. Bit 2 resets the CSI/IQ
++ * state machines. The hold matches the probe so the XPM FIFO reset finishes.
++ * Config registers are left alone. Both FIFO overflow ports are unconnected,
++ * so there is no overflow flag to count. */
++static u32 side_ch_applied_capture, side_ch_applied_len, side_ch_applied_eq;
++static int side_ch_applied_valid;
++
++static void side_ch_soft_reset(void)
++{
++	int i;
++
++	for (i = 0; i < 8; i++)
++		SIDE_CH_REG_MULTI_RST_write(0);
++	for (i = 0; i < 32; i++)
++		SIDE_CH_REG_MULTI_RST_write(0xFFFFFFFF);
++	for (i = 0; i < 8; i++)
++		SIDE_CH_REG_MULTI_RST_write(0);
++}
++
++static void side_ch_note_mode(void)
++{
++	side_ch_applied_capture = SIDE_CH_REG_IQ_CAPTURE_read() & 1;
++	side_ch_applied_len = SIDE_CH_REG_IQ_LEN_read();
++	side_ch_applied_eq = SIDE_CH_REG_NUM_EQ_read();
++	side_ch_applied_valid = 1;
++}
++
++/* Returns 1 when the live IQ/CSI registers differ from the last armed mode.
++ * The FIFO is empty afterwards. */
++static int side_ch_mode_reset_if_needed(void)
++{
++	u32 capture = SIDE_CH_REG_IQ_CAPTURE_read() & 1;
++	u32 len = SIDE_CH_REG_IQ_LEN_read();
++	u32 eq = SIDE_CH_REG_NUM_EQ_read();
++
++	if (side_ch_applied_valid && capture == side_ch_applied_capture
++	    && len == side_ch_applied_len && eq == side_ch_applied_eq)
++		return 0;
++	printk(KERN_INFO "%s mode change capture %u len %u eq %u\n",
++		side_ch_compatible_str, capture, len, eq);
++	side_ch_soft_reset();
++	side_ch_note_mode();
++	return 1;
++}
++
+ static int get_side_info(int num_eq, int iq_len) {
+ 	struct scatterlist chan_to_ps_sg[1];
+ 	enum dma_status status;
+@@ -401,15 +446,17 @@
+ 		reg_num = dma_words;
+ 		report_size = num_dma_symbol_per_trans*8;
+ 	} else {
++		/* One CSI frame per GET. One DMA of a full FIFO (17 frames,
++		 * 8058 words) stalled the reader after two datagrams. The
++		 * caller loops, and each GET re-arms, until reg 20 is below
++		 * one frame. */
+ 		num_dma_symbol_per_trans = HEADER_LEN + CSI_LEN + num_eq*EQUALIZER_LEN;
+-		dma_words = (u32)num_dma_symbol_per_trans*(available/(u32)num_dma_symbol_per_trans);
+-		if (dma_words == 0)
++		if (num_dma_symbol_per_trans <= 0
++		    || (u32)num_dma_symbol_per_trans > (u32)(max_side_info_buf_size/8))
+ 			return(-2);
+-		if (dma_words > (u32)(max_side_info_buf_size/8))
+-			dma_words = ((u32)(max_side_info_buf_size/8)/(u32)num_dma_symbol_per_trans)*(u32)num_dma_symbol_per_trans;
+-		if (dma_words == 0)
++		if (available < (u32)num_dma_symbol_per_trans)
+ 			return(-2);
+-		/* Same register rule as IQ: the write equals the word count. */
++		dma_words = (u32)num_dma_symbol_per_trans;
+ 		reg_num = dma_words;
+ 		report_size = dma_words*8;
+ 	}
+@@ -465,6 +512,8 @@
+ 		else
+ 			printk("%s get_side_info WARNING chan_to_ps status != DMA_COMPLETE\n", side_ch_compatible_str);
+ 		side_ch_dma_abort();
++		side_ch_soft_reset();
++		side_ch_note_mode();
+ 		goto err_dst_buf_with_unmap;
+ 	}
+ 
+@@ -516,7 +565,16 @@
+ 	pid = nlh->nlmsg_pid; /*pid of sending process */
+ 
+ 	if (action_flag==ACTION_SIDE_INFO_GET) {
+-		res = get_side_info(num_eq_init, iq_len_init);
++		/* Registers, not the insmod parameters. A CSI to IQ switch is a
++		 * register write followed by GET, with no rmmod. */
++		side_ch_mode_reset_if_needed();
++		{
++			u32 capture = SIDE_CH_REG_IQ_CAPTURE_read() & 1;
++			u32 eq = SIDE_CH_REG_NUM_EQ_read();
++			int live_iq = capture ? (int)SIDE_CH_REG_IQ_LEN_read() : 0;
++			int live_eq = eq > 8 ? 8 : (int)eq;
++			res = get_side_info(live_eq, live_iq);
++		}
+ 		// printk(KERN_INFO "%s recv msg: get_side_info(%d,%d) res %d\n", side_ch_compatible_str, num_eq_init, iq_len_init, res);
+ 		if (res>0) {
+ 			msg_size = res;
+@@ -572,7 +630,7 @@
+ 
+ 	struct device_node *np = pdev->dev.of_node;
+ 	struct resource *io;
+-	int err=1, i;
++	int err=1;
+ 
+ 	printk("\n");
+ 
+@@ -636,13 +694,8 @@
+ 
+ 	SIDE_CH_REG_CONFIG_write(0x0001); // allow all packets by default; bit12 FC; bit13 addr1; bit14 addr2
+ 
+-	//rst
+-	for (i=0;i<8;i++)
+-		SIDE_CH_REG_MULTI_RST_write(0);
+-	for (i=0;i<32;i++)
+-		SIDE_CH_REG_MULTI_RST_write(0xFFFFFFFF);
+-	for (i=0;i<8;i++)
+-		SIDE_CH_REG_MULTI_RST_write(0);
++	side_ch_soft_reset();
++	side_ch_note_mode();
+ 	
+ 	// chan_to_pl = dma_request_slave_channel(&(pdev->dev), "rx_dma_mm2s");
+ 	// if (IS_ERR(chan_to_pl)) {
+@@ -710,7 +763,12 @@
+ 	 * S2MM channel was leaked and the next insmod called
+ 	 * dma_release_channel on an ERR_PTR. Release the channel we own.
+ 	 * Do not dmaengine_terminate_all: axi_dma_0 is shared with sdr TX.
++	 * Stop this channel, then reset the FIFO reader, so a GET that was
++	 * still in SEND_STREAM cannot block the next capture.
+ 	 */
++	if (!IS_ERR_OR_NULL(chan_to_ps))
++		side_ch_dma_abort();
++	side_ch_soft_reset();
+ 	if (!IS_ERR_OR_NULL(chan_to_ps)) {
+ 		pr_info("%s dev_remove: dropped channel %s\n", side_ch_compatible_str, dma_chan_name(chan_to_ps));
+ 		dma_release_channel(chan_to_ps);

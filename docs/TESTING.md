@@ -41,6 +41,13 @@ Rules the harness enforces:
   count of 0 bytes is FAIL. `wgd.sh` runs first. The GET starts only after
   register 20 shows one full frame: 474 words for CSI, 4096 words for that
   IQ length.
+- Each side-channel GET moves one frame and the userspace loop re-arms.
+  Register 0 bit 0 resets the output FIFO and bit 2 resets the capture
+  state machines. The driver pulses that register, the same way the probe
+  does, on load, on remove, after a DMA timeout, and when IQ capture, IQ
+  length, or the equalizer count changes. CSI and IQ can therefore alternate
+  without reloading the module. There is no overflow counter: both FIFO
+  overflow ports are left unconnected. The output FIFO is 8192 words deep.
 - `side_ch.ko` is inserted only when it is the fixed module. On the v1.0 card
   the file must match the known-good hash. A broken module is not inserted.
 - F20 reboots a healthy board ten times. If SSH does not return, the run
