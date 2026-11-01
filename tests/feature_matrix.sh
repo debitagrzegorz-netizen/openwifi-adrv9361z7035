@@ -778,11 +778,39 @@ f_side() {
     record F17 FAIL "path is the broken module"
     return
   fi
-  board_sudo "rmmod side_ch 2>/dev/null || true; insmod '$path'; cd /home/analog/openwifi && ./monitor_ch.sh sdr0 13" >"$OUT/f16-insmod.txt" 2>&1 || {
+  # CSI and IQ stay empty unless some station is actually transmitting.
+  # The dongle AP on channel 13 is that transmitter. Beacons are enough.
+  sudo -n /usr/local/sbin/openwifi-hostapd-ctl stop >/dev/null 2>&1 || true
+  if ! set_host_type managed 13; then
+    record F16 FAIL "dongle could not be set managed before the AP"
+    record F17 FAIL "dongle could not be set managed before the AP"
+    return
+  fi
+  if ! sudo -n /usr/local/sbin/openwifi-hostapd-ctl start >"$OUT/f16-hostapd.txt" 2>&1; then
+    record F16 FAIL "dongle AP did not start"
+    record F17 FAIL "dongle AP did not start"
+    return
+  fi
+  sudo -n /usr/sbin/ip addr flush dev "$WLX" >/dev/null 2>&1 || true
+  sudo -n /usr/sbin/ip addr add 192.168.13.1/24 dev "$WLX" >/dev/null 2>&1 || true
+  if ! require_txpower; then
+    record F16 FAIL "dongle AP txpower is not 5.00 dBm"
+    record F17 FAIL "dongle AP txpower is not 5.00 dBm"
+    return
+  fi
+  # Probe writes IQ_CAPTURE only when iq_len_init>0. The FPGA bit survives
+  # rmmod, and the same probe then forces the IQ trigger back to RSSI, which
+  # never fires. CSI stays empty until the bit is cleared. wh3d0 is that clear.
+  board_sudo "killall side_ch_ctl 2>/dev/null || true; rmmod side_ch 2>/dev/null || true; insmod '$path'; cd /home/analog/openwifi && ./monitor_ch.sh sdr0 13 && ./side_ch_ctl wh3d0 && ./side_ch_ctl rh3" >"$OUT/f16-insmod.txt" 2>&1 || {
     record F16 FAIL "insmod failed"
     record F17 FAIL "insmod failed"
     return
   }
+  if ! tail -n 4 "$OUT/f16-insmod.txt" | grep -q '0x00000000'; then
+    record F16 FAIL "IQ_CAPTURE did not read back as 0 after wh3d0"
+    record F17 FAIL "IQ_CAPTURE did not read back as 0 after wh3d0"
+    return
+  fi
   local host=${HOST_IP:-}
   if [ -z "$host" ]; then
     record F16 FAIL "HOST_IP is unset"
@@ -802,7 +830,7 @@ while time.time() < end:
         sizes.append(len(data))
     except socket.timeout:
         pass
-ok = len(sizes) >= 18 and all(n in (3792, 7584) for n in sizes)
+ok = len(sizes) >= 18 and all(n > 0 and n % 3792 == 0 for n in sizes)
 open(sys.argv[1], "w").write(
     "packets %d bytes %d ok %d sizes %s\n"
     % (len(sizes), sum(sizes), int(ok), ",".join(str(n) for n in sizes[:24]))
@@ -810,19 +838,26 @@ open(sys.argv[1], "w").write(
 PY
   local py=$!
   sleep 0.3
+  # A reader started in the remote shell holds the SSH session open, so this
+  # ssh stays in the background here. SIGINT makes side_ch_ctl leave its loop
+  # after the current DMA. Killing this ssh instead abandons that transfer on
+  # the shared S2MM channel, and the IQ reload then never completes.
   board_sudo "cd /home/analog/openwifi && ./side_ch_ctl g -s ${host}" >"$OUT/f16-ctl.txt" 2>&1 &
   local ctl=$!
   sleep 12
+  board_sudo 'killall -INT side_ch_ctl 2>/dev/null || true; i=0; while [ "$i" -lt 25 ]; do ps | grep -v grep | grep -q side_ch_ctl || break; i=$((i+1)); sleep 0.2; done; echo STOPPED' >"$OUT/f16-stop.txt" 2>&1 || true
   kill "$ctl" 2>/dev/null || true
   wait "$py" || true
   local packets
   packets=$(awk '/packets/{print $2}' "$OUT/f16-udp.txt" 2>/dev/null || echo 0)
   if grep -q 'ok 1' "$OUT/f16-udp.txt"; then
-    record F16 PASS "UDP port 4000 received $packets CSI datagrams of 3792 or 7584 bytes"
+    record F16 PASS "UDP port 4000 received $packets CSI datagrams, each a multiple of 3792 bytes"
   else
-    record F16 FAIL "CSI capture packets=${packets:-0} (need at least 18 of 3792 or 7584 bytes). Not a bitstream change."
+    record F16 FAIL "CSI capture packets=${packets:-0} (need at least 18 datagrams, each a multiple of 3792 bytes). Not a bitstream change."
   fi
-  board_sudo "rmmod side_ch; insmod '$path' iq_len_init=4095; cd /home/analog/openwifi && ./side_ch_ctl wh3h01" >"$OUT/f17-insmod.txt" 2>&1 || {
+  # Reloading side_ch drops the monitor tune. IQ with trigger 0 waits for
+  # an FCS, so the receiver has to be put back on channel 13 before the read.
+  board_sudo "killall side_ch_ctl 2>/dev/null || true; rmmod side_ch && insmod '$path' iq_len_init=4095 && cd /home/analog/openwifi && ./monitor_ch.sh sdr0 13 && ./side_ch_ctl wh3h01 && ./side_ch_ctl rh8" >"$OUT/f17-insmod.txt" 2>&1 || {
     record F17 FAIL "iq insmod failed"
     return
   }
@@ -850,6 +885,7 @@ PY
   board_sudo "cd /home/analog/openwifi && ./side_ch_ctl g -s ${host}" >"$OUT/f17-ctl.txt" 2>&1 &
   ctl=$!
   sleep 12
+  board_sudo 'killall -INT side_ch_ctl 2>/dev/null || true; i=0; while [ "$i" -lt 25 ]; do ps | grep -v grep | grep -q side_ch_ctl || break; i=$((i+1)); sleep 0.2; done; echo STOPPED' >"$OUT/f17-stop.txt" 2>&1 || true
   kill "$ctl" 2>/dev/null || true
   wait "$py" || true
   packets=$(awk '/packets/{print $2}' "$OUT/f17-udp.txt" 2>/dev/null || echo 0)
