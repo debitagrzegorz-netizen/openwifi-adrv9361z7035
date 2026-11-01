@@ -40,6 +40,10 @@
    `adi,ad9361`, LVDS, 2rx-2tx, FDD, `adi,rx-rf-port-input-select = <0>`,
    `adi,tx-rf-port-input-select = <0>`, enable GPIOs), the I2C ADM1166, the
    GEM Ethernet MAC, SD, UART, and USB.
+   `image.ub` keeps `system-top.dtb` (the default configuration) and
+   `zynq-adrv9361-z7035-bob.dtb`. The bob file is the in-kernel board tree
+   `system-top` is assembled from. `cortexa9-linux.dts` stays in the kernel
+   source and is not copied into the FIT.
 3. The reference is the v1.0 runtime DTB, decompiled to
    `sw/reference/v1.0-system.dts`. Critical map, in decimal: `/axi/sdr`
    interrupts `0 29 1 0 30 1 0 33 1 0 34 1`, DMA `0x80400000` `0 35 4 0 36 4`,

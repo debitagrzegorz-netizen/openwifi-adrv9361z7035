@@ -5,7 +5,7 @@
 ```
 
 The command writes `build/features/FEATURES-<image>-<date>.md` and `.json`.
-Each row is PASS, FAIL, SKIPPED with a reason, or KNOWN-ISSUE.
+Each row is PASS, PASS(info), FAIL, SKIPPED with a reason, or KNOWN-ISSUE.
 
 Rules the harness enforces:
 
@@ -16,6 +16,14 @@ Rules the harness enforces:
   off except for F19.
 - Channel 13 unless the row names another channel. No regulatory change is
   applied on the host. 5 GHz is skipped.
+- F6 is PASS when ping loss is under 1 % and TCP is above 0. It is
+  PASS(info) when TCP is above 0, ping loss is 1–3 %, and the scan recorded
+  a network on a channel within four of the channel under test. A higher
+  loss, or that loss with no such neighbour, is FAIL. Channel 13 uses the
+  F5 numbers.
+- F16 needs at least 18 UDP datagrams, each a multiple of 3792 bytes. F17
+  needs at least 14 datagrams of 32768 bytes with `iq_len_init=4095`. A
+  count of 0 bytes is FAIL.
 - `side_ch.ko` is inserted only when it is the fixed module. On the v1.0 card
   the file must match the known-good hash. A broken module is not inserted.
 - F20 reboots a healthy board ten times. If SSH does not return, the run

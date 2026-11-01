@@ -10,6 +10,11 @@ included. The v1.0 XSA SHA256 is
 `b9a619acfff25ac07774c1afd51cc7eb1b071cb7273312407c4358c3fb525c3b`.
 `hw/` only consumes that supplied XSA. The from-scratch FPGA track is paused.
 
+The FIT image keeps two device trees. `system-top.dtb` is the default boot
+configuration. `zynq-adrv9361-z7035-bob.dtb` is the in-kernel board tree that
+`system-top` is assembled from. `cortexa9-linux.dts` stays in the kernel
+source and is not copied into the FIT.
+
 ## Quick build
 
 ```
