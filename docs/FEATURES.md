@@ -14,7 +14,7 @@
 | F10 | Board injection | Legacy 6/24/54 and HT MCS 0/4/7 at 100/500/1400 byte payloads |
 | F11 | Host injection | Host `inject_80211` through the installed wrapper, counted on the board |
 | F12 | sdrctl | TSF register read and a drv_xpu round trip that is restored |
-| F13 | Channel access | cw, difs, nav, and LBT scripts write, read back, and restore |
+| F13 | Channel access | cw and LBT scripts write and read back. A cw write of 0 clears the sysfs override and is not written to the FPGA |
 | F14 | Time slicing | `slice_cfg.sh` configure, read back, restore |
 | F15 | Statistics | `stat_enable.sh` and the tx/rx stat scripts around traffic |
 | F16 | side_ch CSI | At least 18 UDP datagrams, each a multiple of 3792 bytes |

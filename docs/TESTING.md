@@ -18,6 +18,10 @@ Rules the harness enforces:
   applied on the host. 5 GHz is skipped.
 - F2 reads the four DAC muxes after `wgd.sh`. Before that script a cold
   boot reads 0. The required value is still `0x00000002` on all four.
+- F13 writes `0x1234` and `0x5678` and expects those FPGA values. A following
+  write of 0 must remove the `SYSFS` line. When the captured value was 0,
+  the FPGA register is not required to return to 0. LBT still round-trips,
+  including a restore of 0.
 - F6 is PASS when ping loss is under 1 % and TCP is above 0. It is
   PASS(info) when TCP is above 0, ping loss is 1–3 %, and the scan recorded
   a network on a channel within four of the channel under test. A higher

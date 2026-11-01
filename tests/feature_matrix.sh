@@ -816,8 +816,39 @@ f12() {
 f13() {
   # cw_max_min_cfg prints "FPGA  cw max min ...: <8 hex>" and stores hex.
   # set_lbt_th.sh prints "reg  val: <8 hex>" and takes a decimal argument.
+  # A store of 0 clears the sysfs override and does not write the FPGA.
   # Do not write the show text back to sysfs.
-  board_sudo 'cd /home/analog/openwifi && oldcw=$(./cw_max_min_cfg.sh | awk "/FPGA  cw max min for q3 to q0: [0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]\$/{v=\$NF} END{print v}"); oldlbt=$(./set_lbt_th.sh | awk "/reg  val:/{v=\$NF} END{print v}"); echo OLD_CW ${oldcw:-missing} OLD_LBT ${oldlbt:-missing}; case $oldcw in [0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]) ;; *) echo CW_CAPTURE_FAIL; exit 1;; esac; case $oldlbt in [0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]) ;; *) echo LBT_CAPTURE_FAIL; exit 1;; esac; ./cw_max_min_cfg.sh 1234 >/tmp/p23-cw.txt; echo CW $(awk "/FPGA  cw max min for q3 to q0: [0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]\$/{v=\$NF} END{print v}" /tmp/p23-cw.txt); ./set_lbt_th.sh 1000 >/tmp/p23-lbt.txt; echo LBT $(awk "/reg  val:/{v=\$NF} END{print v}" /tmp/p23-lbt.txt); ./cw_max_min_cfg.sh "$oldcw" >/tmp/p23-cw2.txt; echo CWRESTORE $(awk "/FPGA  cw max min for q3 to q0: [0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]\$/{v=\$NF} END{print v}" /tmp/p23-cw2.txt); ./set_lbt_th.sh $((16#$oldlbt)) >/tmp/p23-lbt2.txt; echo LBTRESTORE $(awk "/reg  val:/{v=\$NF} END{print v}" /tmp/p23-lbt2.txt)' >"$OUT/f13.txt" 2>&1 || {
+  board_sudo "$(cat <<'EOS'
+cd /home/analog/openwifi
+cw_hex() {
+  awk '/FPGA  cw max min for q3 to q0: [0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]$/{v=$NF} END{print v}'
+}
+lbt_hex() {
+  awk '/reg  val:/{v=$NF} END{print v}'
+}
+oldcw=$(./cw_max_min_cfg.sh | cw_hex)
+oldlbt=$(./set_lbt_th.sh | lbt_hex)
+echo OLD_CW ${oldcw:-missing} OLD_LBT ${oldlbt:-missing}
+case $oldcw in [0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]) ;; *) echo CW_CAPTURE_FAIL; exit 1;; esac
+case $oldlbt in [0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]) ;; *) echo LBT_CAPTURE_FAIL; exit 1;; esac
+./cw_max_min_cfg.sh 1234 >/tmp/p23-cw.txt
+echo CW $(cw_hex </tmp/p23-cw.txt)
+./cw_max_min_cfg.sh 5678 >/tmp/p23-cw2.txt
+echo CW2 $(cw_hex </tmp/p23-cw2.txt)
+./set_lbt_th.sh 1000 >/tmp/p23-lbt.txt
+echo LBT $(lbt_hex </tmp/p23-lbt.txt)
+./cw_max_min_cfg.sh 00000000 >/tmp/p23-cw0.txt
+echo SYSFS_AFTER $(grep -c 'SYSFS cw max min' /tmp/p23-cw0.txt || true)
+if [ "$oldcw" != "00000000" ]; then
+  ./cw_max_min_cfg.sh "$oldcw" >/tmp/p23-cw3.txt
+  echo CWRESTORE $(cw_hex </tmp/p23-cw3.txt)
+else
+  echo CWRESTORE cleared
+fi
+./set_lbt_th.sh $((16#$oldlbt)) >/tmp/p23-lbt2.txt
+echo LBTRESTORE $(lbt_hex </tmp/p23-lbt2.txt)
+EOS
+)" >"$OUT/f13.txt" 2>&1 || {
     record F13 FAIL "channel-access scripts failed"
     return
   }
@@ -826,16 +857,23 @@ f13() {
 import re, sys
 t = open(sys.argv[1], errors="replace").read()
 def one(label):
-    ms = re.findall(r"(?m)^%s ([0-9A-Fa-f]{8})\s*$" % label, t)
+    ms = re.findall(r"(?m)^%s (\S+)\s*$" % label, t)
     return ms[-1].lower() if ms else ""
-cw, lbt, cwr, lbtr = one("CW"), one("LBT"), one("CWRESTORE"), one("LBTRESTORE")
+cw, cw2, lbt = one("CW"), one("CW2"), one("LBT")
+cwr, lbtr, sysfs = one("CWRESTORE"), one("LBTRESTORE"), one("SYSFS_AFTER")
 m = re.search(r"(?m)^OLD_CW (\S+) OLD_LBT (\S+)\s*$", t)
 oldcw = m.group(1).lower() if m else ""
 oldlbt = m.group(2).lower() if m else ""
 hex8 = re.compile(r"[0-9a-f]{8}\Z")
-ok = (cw == "00001234" and lbt == "000003e8" and cwr == oldcw and lbtr == oldlbt
-      and hex8.match(oldcw) and hex8.match(oldlbt))
-print(("PASS" if ok else "FAIL") + " cw=%s lbt=%s restore=%s/%s old=%s/%s" % (cw, lbt, cwr, lbtr, oldcw, oldlbt))
+if oldcw == "00000000":
+    restore_ok = cwr == "cleared"
+else:
+    restore_ok = cwr == oldcw
+ok = (cw == "00001234" and cw2 == "00005678" and sysfs == "0"
+      and lbt == "000003e8" and lbtr == oldlbt
+      and hex8.match(oldcw or "") and hex8.match(oldlbt or "")
+      and restore_ok)
+print(("PASS" if ok else "FAIL") + " cw=%s cw2=%s lbt=%s sysfs_after=%s restore=%s/%s old=%s/%s" % (cw, cw2, lbt, sysfs, cwr, lbtr, oldcw, oldlbt))
 PY
 )
   record F13 "${line%% *}" "${line#* }"
