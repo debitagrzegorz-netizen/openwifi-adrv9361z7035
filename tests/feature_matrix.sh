@@ -953,6 +953,14 @@ f_side() {
   fi
   # CSI and IQ stay empty unless some station is actually transmitting.
   # The dongle AP on channel 13 is that transmitter. Beacons are enough.
+  # After the earlier mode changes, reloading side_ch alone leaves register 20
+  # at 0. wgd.sh reloads the SDR datapath. A capture started from that state
+  # queues a full frame. Do this before the dongle AP comes up.
+  board_sudo 'rmmod side_ch 2>/dev/null || true; cd /home/analog/openwifi && ./wgd.sh' >"$OUT/f16-wgd.txt" 2>&1 || {
+    record F16 FAIL "wgd before the side-channel capture failed"
+    record F17 FAIL "wgd before the side-channel capture failed"
+    return
+  }
   sudo -n /usr/local/sbin/openwifi-hostapd-ctl stop >/dev/null 2>&1 || true
   if ! set_host_type managed 13; then
     record F16 FAIL "dongle could not be set managed before the AP"

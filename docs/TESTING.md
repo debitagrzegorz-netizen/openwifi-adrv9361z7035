@@ -31,8 +31,9 @@ Rules the harness enforces:
   F5 numbers.
 - F16 needs at least 18 UDP datagrams, each a multiple of 3792 bytes. F17
   needs at least 14 datagrams of 32768 bytes with `iq_len_init=4095`. A
-  count of 0 bytes is FAIL. The GET starts only after register 20 shows one
-  full frame: 474 words for CSI, 4096 words for that IQ length.
+  count of 0 bytes is FAIL. `wgd.sh` runs first. The GET starts only after
+  register 20 shows one full frame: 474 words for CSI, 4096 words for that
+  IQ length.
 - `side_ch.ko` is inserted only when it is the fixed module. On the v1.0 card
   the file must match the known-good hash. A broken module is not inserted.
 - F20 reboots a healthy board ten times. If SSH does not return, the run
