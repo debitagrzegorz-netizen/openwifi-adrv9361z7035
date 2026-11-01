@@ -105,6 +105,7 @@ restore_host() {
   sudo -n /usr/sbin/iw dev "$WLX" set type managed >/dev/null 2>&1 || true
   sudo -n /usr/sbin/iw dev "$WLX" set power_save on >/dev/null 2>&1 || true
   sudo -n /usr/sbin/iw dev "$WLX" set txpower fixed 2000 >/dev/null 2>&1 || true
+  sudo -n /usr/sbin/ip addr flush dev "$WLX" >/dev/null 2>&1 || true
   nmcli device set "$WLX" managed yes >/dev/null 2>&1 || true
   board_sudo 'killall hostapd dnsmasq iperf3 wpa_supplicant side_ch_ctl 2>/dev/null || true; ip link set sdr0 down >/dev/null 2>&1 || true; rmmod side_ch >/dev/null 2>&1 || true' >/dev/null 2>&1 || true
 }
@@ -505,24 +506,60 @@ EOF
 }
 
 f8() {
-  board_sudo 'cd /home/analog/openwifi && ip link set sdr0 down; ./sdr-ad-hoc-up.sh sdr0 13 192.168.13.1' >"$OUT/f8.txt" 2>&1 || true
-  if grep -q 'iwconfig: not found' "$OUT/f8.txt" || grep -q 'not found' "$OUT/f8.txt"; then
-    record F8 FAIL "sdr-ad-hoc-up.sh needs iwconfig, which this image does not ship"
-    return
-  fi
+  # The board's own IBSS is not visible to the RT3572 scan. The dongle creates
+  # the cell at a fixed BSSID and the board joins it. A leftover 192.168.13.1
+  # on the dongle would answer the ping locally.
+  local bssid=02:11:22:33:44:55
+  sudo -n /usr/sbin/ip addr flush dev "$WLX" >/dev/null 2>&1 || true
   nmcli device set "$WLX" managed no || true
   sudo -n /usr/sbin/ip link set "$WLX" down || true
-  sudo -n /usr/sbin/iw dev "$WLX" set type ibss || true
+  if ! sudo -n /usr/sbin/iw dev "$WLX" set type ibss; then
+    record F8 FAIL "dongle ibss type failed"
+    return
+  fi
   sudo -n /usr/sbin/ip link set "$WLX" up || true
-  sudo -n /usr/sbin/iw dev "$WLX" ibss join sdr-ad-hoc 2472 || true
+  if ! sudo -n /usr/sbin/iw dev "$WLX" ibss join sdr-ad-hoc 2472 fixed-freq "$bssid" >"$OUT/f8-join.txt" 2>&1; then
+    record F8 FAIL "dongle ibss join failed"
+    return
+  fi
   sudo -n /usr/sbin/ip addr add 192.168.13.19/24 dev "$WLX" || true
-  sleep 3
-  local loss
-  loss=$(ping_loss 192.168.13.1 20 f8)
-  if [ "$loss" != "NA" ] && python3 -c "import sys; sys.exit(0 if float('$loss')<80 else 1)"; then
-    record F8 PASS "ping_loss=$loss"
+  sudo -n /usr/sbin/iw dev "$WLX" set txpower fixed 500 >/dev/null 2>&1 || true
+  if ! require_txpower; then
+    record F8 FAIL "dongle txpower is not 5.00 dBm"
+    return
+  fi
+  board_sudo "killall hostapd dnsmasq wpa_supplicant 2>/dev/null || true; cd /home/analog/openwifi && ./sdr-ad-hoc-join.sh sdr0 13 192.168.13.1 $bssid" >"$OUT/f8.txt" 2>&1 || true
+  local i ready=0
+  for i in 1 2 3 4 5 6 7 8; do
+    board_sudo 'ping -c 3 -W 1 192.168.13.19' >"$OUT/f8-warm.txt" 2>&1 || true
+    if grep -q 'bytes from' "$OUT/f8-warm.txt"; then
+      ready=1
+      break
+    fi
+    sleep 1
+  done
+  if [ "$ready" != 1 ]; then
+    record F8 FAIL "board did not reach the dongle IBSS"
+    return
+  fi
+  if ! ip route get 192.168.13.1 | grep -q 'src 192.168.13.19'; then
+    record F8 FAIL "host route to the board is not the dongle"
+    return
+  fi
+  local loss bloss
+  loss=$(ping_loss 192.168.13.1 100 f8)
+  board_sudo 'ping -c 100 -i 0.2 -W 1 192.168.13.19' >"$OUT/f8-board-ping.txt" 2>&1 || true
+  bloss=$(python3 - "$OUT/f8-board-ping.txt" <<'PY'
+import re, sys
+t = open(sys.argv[1], errors="replace").read()
+m = re.search(r"(\d+) packets transmitted, (\d+) (?:packets )?received,.*?([0-9.]+)% packet loss", t, re.S)
+print(m.group(3) if m else "NA")
+PY
+)
+  if [ "$loss" != "NA" ] && [ "$bloss" != "NA" ] && python3 -c "import sys; sys.exit(0 if float('$loss')<1 and float('$bloss')<1 else 1)"; then
+    record F8 PASS "ibss ping_loss host=$loss board=$bloss"
   else
-    record F8 FAIL "ping_loss=$loss"
+    record F8 FAIL "ibss ping_loss host=$loss board=$bloss"
   fi
 }
 
