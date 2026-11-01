@@ -913,6 +913,29 @@ f15() {
   fi
 }
 
+# Reg 20 counts queued side-channel words. One CSI frame is 474 words
+# (header 2 + CSI 56 + 8 equalizers of 52). One IQ frame at iq_len 4095 is
+# 4096 words. A GET before a full frame is queued returns an empty payload.
+wait_side_fifo() {
+  local need=$1 dest=$2 i val
+  : >"$dest"
+  for i in 1 2 3 4 5 6 7 8; do
+    val=$(board_sudo 'cd /home/analog/openwifi && ./side_ch_ctl rh20' | tr -d '\r' | awk '/rx:/{v=$NF} END{print v}')
+    printf '%s\n' "${val:-missing}" >>"$dest"
+    python3 - "${val:-missing}" "$need" <<'PY' && return 0
+import sys
+raw, need = sys.argv[1], int(sys.argv[2])
+try:
+    n = int(raw, 0)
+except ValueError:
+    raise SystemExit(1)
+raise SystemExit(0 if n >= need else 1)
+PY
+    sleep 0.3
+  done
+  return 1
+}
+
 f_side() {
   local sha path
   path=$(board_sudo 'if [ -L /home/analog/openwifi/side_ch.ko ] || [ -f /home/analog/openwifi/side_ch.ko ]; then readlink -f /home/analog/openwifi/side_ch.ko; else echo MISSING; fi' | tr -d '\r' | tail -n 1)
@@ -967,6 +990,9 @@ f_side() {
     record F17 FAIL "HOST_IP is unset"
     return
   fi
+  if ! wait_side_fifo 474 "$OUT/f16-fifo.txt"; then
+    record F16 FAIL "FIFO stayed below 474 words before the GET: $(tr '\n' ' ' <"$OUT/f16-fifo.txt")"
+  else
   python3 - "$OUT/f16-udp.txt" <<'PY' &
 import socket, sys, time
 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -1003,7 +1029,8 @@ PY
   if grep -q 'ok 1' "$OUT/f16-udp.txt"; then
     record F16 PASS "UDP port 4000 received $packets CSI datagrams, each a multiple of 3792 bytes"
   else
-    record F16 FAIL "CSI capture packets=${packets:-0} (need at least 18 datagrams, each a multiple of 3792 bytes). Not a bitstream change."
+    record F16 FAIL "CSI capture packets=${packets:-0} (need at least 18 datagrams, each a multiple of 3792 bytes). Not a bitstream change. fifo=$(tr '\n' ' ' <"$OUT/f16-fifo.txt")"
+  fi
   fi
   # Reloading side_ch drops the monitor tune. IQ with trigger 0 waits for
   # an FCS, so the receiver has to be put back on channel 13 before the read.
@@ -1011,6 +1038,11 @@ PY
     record F17 FAIL "iq insmod failed"
     return
   }
+  if ! wait_side_fifo 4096 "$OUT/f17-fifo.txt"; then
+    record F17 FAIL "FIFO stayed below 4096 words before the GET: $(tr '\n' ' ' <"$OUT/f17-fifo.txt")"
+    board_sudo 'rmmod side_ch 2>/dev/null || true' || true
+    return
+  fi
   python3 - "$OUT/f17-udp.txt" <<'PY' &
 import socket, sys, time
 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
