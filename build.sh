@@ -508,7 +508,15 @@ stage_hw() {
   local vivado
   vivado=${TOOLS_ROOT}/Vivado/bin/vivado
   [ -x "$vivado" ] || die "vivado not found: $vivado"
+  # Clean here, not in Vivado: -clean inside Vivado would delete the open log.
+  if [ "$HW_CLEAN" = 1 ]; then
+    rm -rf "$ROOT/build/hw"
+  fi
   mkdir -p "$ROOT/build/hw/logs" "$ROOT/build/hw/tmp"
+  # One log per invocation, so the report stage sees every stage that ran.
+  local stamp
+  stamp=$(date +%Y%m%d-%H%M%S)
+  ln -sfn "vivado-$stamp.log" "$ROOT/build/hw/logs/vivado.log"
   local -a args
   args=(-config "$ROOT/config/versions.conf" -local "$ROOT/config/local.conf")
   if [ -n "$HW_DIRECTIVE" ]; then
@@ -526,9 +534,6 @@ stage_hw() {
   if [ -n "$HW_JOBS_ARG" ]; then
     args+=(-jobs "$HW_JOBS_ARG")
   fi
-  if [ "$HW_CLEAN" = 1 ]; then
-    args+=(-clean)
-  fi
   if [ -n "$HW_SIM" ]; then
     args+=(-sim "$HW_SIM")
   fi
@@ -537,8 +542,8 @@ stage_hw() {
   fi
   cd "$ROOT/build/hw/tmp"
   stdbuf -oL -eL "$vivado" -mode batch -notrace \
-    -log "$ROOT/build/hw/logs/vivado.log" \
-    -journal "$ROOT/build/hw/logs/vivado.jou" \
+    -log "$ROOT/build/hw/logs/vivado-$stamp.log" \
+    -journal "$ROOT/build/hw/logs/vivado-$stamp.jou" \
     -source "$ROOT/hw/build_hw.tcl" \
     -tclargs "${args[@]}"
 }

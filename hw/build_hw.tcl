@@ -15,7 +15,7 @@ set ::hw::hwdir [file dirname [file normalize [info script]]]
 set ::hw::root [file normalize [file join $::hw::hwdir ..]]
 set ::hw::build [file join $::hw::root build hw]
 
-foreach lib {config fetch adi_ip openwifi_ip bd impl export gates sim} {
+foreach lib {config fetch adi_ip openwifi_ip bd synth impl export gates sim} {
   source [file join $::hw::hwdir tcl lib $lib.tcl]
 }
 
@@ -88,38 +88,57 @@ proc hw::fetch_identity {} {
     [hw::need OPENOFDM_RX_REPO]] \n]
 }
 
+proc hw::lib_file {name} {
+  return [file join $::hw::hwdir tcl lib $name.tcl]
+}
+
+# Each stage hashes only the inputs it uses, plus the hash of the stage before
+# it. build_hw.tcl is the driver only and is not a stage input.
 proc hw::stage_hash {stage} {
-  set common [hw::files_hash [concat \
-    [list [file join $::hw::hwdir build_hw.tcl] [file join $::hw::root config versions.conf]] \
-    [hw::hw_files tcl/lib]]]
   switch -- $stage {
     fetch {
       return [hw::hash_text [hw::fetch_identity]]
     }
     ip {
-      return [hw::hash_text "[hw::stage_hash fetch]\n$common\n[hw::files_hash [hw::hw_files ip_xci_tcl]]"]
+      set files [concat \
+        [list [hw::lib_file config] [hw::lib_file fetch] \
+              [hw::lib_file adi_ip] [hw::lib_file openwifi_ip]] \
+        [hw::hw_files ip_xci_tcl]]
+      return [hw::hash_text "[hw::stage_hash fetch]\n[hw::files_hash $files]\nADI_IGNORE_VERSION_CHECK=[hw::cfg_get ADI_IGNORE_VERSION_CHECK]"]
     }
     bd {
-      return [hw::hash_text "[hw::stage_hash ip]\n[hw::files_hash [concat [hw::hw_files bd] [hw::hw_files constraints]]]"]
+      set files [concat [list [hw::lib_file bd]] [hw::hw_files bd] [hw::hw_files constraints]]
+      return [hw::hash_text "[hw::stage_hash ip]\n[hw::files_hash $files]\nPART=[hw::need PART]\nBOARD=[hw::need BOARD]"]
     }
     synth {
-      return [hw::hash_text "[hw::stage_hash bd]\njobs=$::hw::jobs"]
+      return [hw::hash_text "[hw::stage_hash bd]\n[hw::files_hash [list [hw::lib_file synth]]]"]
     }
     impl {
-      return [hw::hash_text "[hw::stage_hash synth]\ndirective=$::hw::directive\njobs=$::hw::jobs"]
+      return [hw::hash_text "[hw::stage_hash synth]\n[hw::files_hash [list [hw::lib_file impl]]]\ndirective=$::hw::directive [hw::directive_map $::hw::directive]"]
     }
     bit -
     xsa {
-      return [hw::hash_text "[hw::stage_hash impl]"]
+      return [hw::hash_text "[hw::stage_hash impl]\n[hw::files_hash [list [hw::lib_file export]]]"]
     }
     sdt {
       return [hw::hash_text "[hw::stage_hash xsa]\n[hw::files_hash [list [file join $::hw::root sw sdt gen_sdt.sh]]]"]
     }
     report {
-      return [hw::hash_text "[hw::stage_hash sdt]\n[hw::files_hash [concat \
-        [list [file join $::hw::hwdir known_critical_warnings.txt] \
-              [file join $::hw::hwdir scripts compare_hwh.py] \
-              [file join $::hw::hwdir tcl lib gates.tcl]]]]"]
+      set files [list \
+        [hw::lib_file gates] \
+        [file join $::hw::hwdir known_critical_warnings.txt] \
+        [file join $::hw::hwdir scripts compare_hwh.py]]
+      set ref [hw::cfg_get EQUIV_HWH]
+      set ref_sum none
+      if {$ref ne "" && [file isfile $ref]} {
+        set ref_sum [lindex [hw::exec sha256sum $ref] 0]
+      }
+      set sdt_sum none
+      set sdt_ref [hw::cfg_get EQUIV_SDT]
+      if {$sdt_ref ne "" && [file isfile [file join $sdt_ref pl.dtsi]]} {
+        set sdt_sum [lindex [hw::exec sha256sum [file join $sdt_ref pl.dtsi]] 0]
+      }
+      return [hw::hash_text "[hw::stage_hash sdt]\n[hw::files_hash $files]\nEQUIV_HWH=$ref_sum\nEQUIV_SDT=$sdt_sum"]
     }
     default {
       hw::fail "no hash for stage $stage"
@@ -170,12 +189,6 @@ proc hw::write_stamp {stage} {
   puts $fh [hw::stage_hash $stage]
   close $fh
   puts "P24_STAMP $stage"
-}
-
-proc hw::stage_ip {} {
-  hw::disk_ok
-  hw::stage_adi_ip
-  hw::stage_openwifi_ip
 }
 
 proc hw::run_stage {stage} {

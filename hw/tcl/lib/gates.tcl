@@ -171,14 +171,66 @@ proc hw::compile_sdt_dtb {} {
   if {[file executable [file join $bindir dtc]]} {
     set ::env(PATH) "$bindir:$::env(PATH)"
   }
-  if {[catch {hw::exec dtc -I dts -O dtb -o $dtb -i $sdt $dts} err]} {
+  # The SDT top file uses #include, so it goes through cpp first, as in the
+  # kernel DT build.
+  set pp [file join $sdt system-top.pp.dts]
+  if {[catch {hw::exec cpp -nostdinc -undef -D__DTS__ -x assembler-with-cpp \
+      -I $sdt -I [file join $sdt include] -o $pp $dts} err]} {
+    hw::fail "cpp on the SDT failed: $err"
+  }
+  if {[catch {hw::exec dtc -q -I dts -O dtb -o $dtb -i $sdt $pp} err]} {
     hw::fail "dtc failed: $err"
   }
-  set checker [file join $::hw::root scripts check_dtb_irqs.sh]
-  if {[catch {hw::exec $checker $dtb} err]} {
-    hw::fail "SDT IRQ check failed: $err"
+  puts "P24_SDT_DTB_OK"
+}
+
+# The raw SDT has no /axi/sdr node and the image deletes its PL nodes
+# (DTB_PL_DELETE), so check_dtb_irqs.sh runs on the image DTB in
+# build.sh gates. Here the SDT must equal the reference SDT (generated from
+# the v1.0 XSA) except for the bitstream file name.
+proc hw::compare_sdt {} {
+  set ref [hw::cfg_get EQUIV_SDT]
+  if {$ref eq "" || ![file isdirectory $ref]} {
+    hw::fail "set EQUIV_SDT in local.conf to the reference SDT directory"
   }
-  puts "P24_DT_IRQ_OK"
+  set sdt [file join $::hw::build sdt $::hw::directive]
+  set out [file join [hw::report_dir] sdt-diff.txt]
+  set fh [open $out w]
+  set bad 0
+  foreach name {system-top.dts pl.dtsi pcw.dtsi zynq-7000.dtsi} {
+    set a [split [hw::read_file [file join $ref $name]] \n]
+    set b [split [hw::read_file [file join $sdt $name]] \n]
+    if {[llength $a] != [llength $b]} {
+      puts $fh "DIFF $name line count [llength $a] -> [llength $b]"
+      set bad 1
+      continue
+    }
+    for {set i 0} {$i < [llength $a]} {incr i} {
+      set la [lindex $a $i]
+      set lb [lindex $b $i]
+      if {$la eq $lb} {
+        continue
+      }
+      if {[regexp {^\s*firmware-name = } $la] && [regexp {^\s*firmware-name = } $lb]} {
+        puts $fh "ALLOW $name:[expr {$i + 1}] [string trim $la] -> [string trim $lb]"
+        continue
+      }
+      puts $fh "DIFF $name:[expr {$i + 1}] [string trim $la] -> [string trim $lb]"
+      set bad 1
+    }
+  }
+  close $fh
+  if {$bad} {
+    hw::fail "SDT differs from EQUIV_SDT (see sdt-diff.txt)"
+  }
+  puts "P24_SDT_EQUIV_OK"
+}
+
+proc hw::read_file {path} {
+  set fh [open $path r]
+  set body [read $fh]
+  close $fh
+  return $body
 }
 
 proc hw::check_sources_clean {} {
@@ -256,6 +308,7 @@ proc hw::stage_report {} {
     hw::fail "hwh equivalence failed: $err"
   }
   hw::compile_sdt_dtb
+  hw::compare_sdt
   hw::check_sources_clean
   if {![info exists ::hw::git_short]} {
     hw::git_header

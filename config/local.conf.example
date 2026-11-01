@@ -30,6 +30,8 @@ HW_JOBS=8
 
 # Reference .hwh for the hardware equivalence gate. A local path, never committed.
 # EQUIV_HWH=
+# Reference SDT directory (from the v1.0 XSA) for the SDT equivalence gate.
+# EQUIV_SDT=
 
 # Set to 1 only when the pinned ADI HDL declares a different Vivado version.
 # ADI_IGNORE_VERSION_CHECK=

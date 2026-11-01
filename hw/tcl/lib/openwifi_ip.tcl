@@ -262,3 +262,9 @@ proc hw::openwifi_products_ok {} {
   }
   return 1
 }
+
+proc hw::stage_ip {} {
+  hw::disk_ok
+  hw::stage_adi_ip
+  hw::stage_openwifi_ip
+}

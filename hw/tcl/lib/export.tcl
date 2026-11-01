@@ -29,107 +29,32 @@ proc hw::ensure_routed_design {} {
   if {[info exists ::hw::design_open] && $::hw::design_open} {
     return
   }
-  set dcp [file join $::hw::build ckpt $::hw::directive post_hold.dcp]
-  if {![file exists $dcp]} {
-    hw::fail "post-hold checkpoint is missing"
+  hw::open_bd_project
+  set name [hw::impl_run]
+  if {[get_runs -quiet $name] eq ""} {
+    hw::fail "run $name is missing; run the impl stage"
   }
-  open_checkpoint $dcp
+  hw::check_run $name write_bitstream
+  open_run $name
+  # write_hw_platform -include_bit writes the bitstream again from this
+  # design, so it needs the same USR_ACCESS as the run's TCL.PRE hook.
+  set ua [hw::usr_access_value]
+  set_property BITSTREAM.CONFIG.USR_ACCESS $ua [current_design]
+  set ::hw::usr_access $ua
   set ::hw::design_open 1
 }
 
 proc hw::stage_bit {} {
-  hw::ensure_routed_design
-  set ua [hw::usr_access_value]
-  set_property BITSTREAM.CONFIG.USR_ACCESS $ua [current_design]
+  set run_bit [file join [hw::run_dir [hw::impl_run]] system_top.bit]
+  if {![file exists $run_bit]} {
+    hw::fail "[hw::impl_run] wrote no bitstream"
+  }
   set bit [file join [hw::out_dir] system_top.bit]
-  puts "P24_BIT_BEGIN USR_ACCESS=$ua"
-  write_bitstream -force $bit
+  file copy -force $run_bit $bit
   if {$::hw::directive eq "default"} {
     file copy -force $bit [file join $::hw::build out system_top.bit]
   }
-  set ::hw::usr_access $ua
-  puts "P24_BIT_OK $bit"
-}
-
-proc hw::read_text {path} {
-  set fh [open $path r]
-  set body [read $fh]
-  close $fh
-  return $body
-}
-
-proc hw::write_text {path body} {
-  set fh [open $path w]
-  puts -nonewline $fh $body
-  close $fh
-}
-
-proc hw::xsa_add_bitstream {xsa bit} {
-  # write_hw_platform on the flat routed netlist aborts in the MMI step.
-  # The block-design archive has the processor handoff and no bitstream.
-  set tmp [file join $::hw::build tmp xsa-pack]
-  file delete -force $tmp
-  file mkdir $tmp
-  if {[catch {hw::exec unzip -o $xsa -d $tmp} err]} {
-    hw::fail "unzip XSA failed: $err"
-  }
-  file copy -force $bit [file join $tmp system_top.bit]
-  set xml_path [file join $tmp xsa.xml]
-  set xml [hw::read_text $xml_path]
-  if {[string first "FULL_BIT" $xml] < 0} {
-    if {[string first "<Files/>" $xml] < 0} {
-      hw::fail "xsa.xml has no Files element"
-    }
-    set xml [string map {<Files/> {<Files>
-      <File Type="FULL_BIT" Name="system_top.bit"/>
-    </Files>}} $xml]
-    hw::write_text $xml_path $xml
-  }
-  set bit_xml "\t<File Type=\"BIT\" Name=\"system_top.bit\" src_db=\"temp.hdf\">\n\t</File>\n"
-  foreach handoff {hwdef.xml sysdef.xml} {
-    set path [file join $tmp $handoff]
-    if {![file exists $path]} {
-      continue
-    }
-    set body [hw::read_text $path]
-    if {[string first "Type=\"BIT\"" $body] < 0} {
-      if {[string first "<USEDRESOURCES/>" $body] < 0} {
-        hw::fail "$handoff has no USEDRESOURCES element"
-      }
-      set body [string map [list <USEDRESOURCES/> "$bit_xml\t<USEDRESOURCES/>"] $body]
-      hw::write_text $path $body
-    }
-  }
-  if {![file exists [file join $tmp sysdef.xml]] && [file exists [file join $tmp hwdef.xml]]} {
-    file copy -force [file join $tmp hwdef.xml] [file join $tmp sysdef.xml]
-  }
-  set json_path [file join $tmp xsa.json]
-  set json [hw::read_text $json_path]
-  if {[string first "system_top.bit" $json] < 0} {
-    set idx [string last "\}" $json]
-    if {$idx < 0} {
-      hw::fail "xsa.json has no closing brace"
-    }
-    set snippet {,
-    "files": [
-        {
-            "name": "system_top.bit",
-            "type": "FULL_BIT"
-        }
-    ]
-}
-}
-    set json "[string range $json 0 [expr {$idx - 1}]]$snippet"
-    hw::write_text $json_path $json
-  }
-  file delete -force $xsa
-  set here [pwd]
-  cd $tmp
-  if {[catch {hw::exec zip -X -r $xsa .} err]} {
-    cd $here
-    hw::fail "zip XSA failed: $err"
-  }
-  cd $here
+  puts "P24_BIT_OK $bit USR_ACCESS=[hw::usr_access_value]"
 }
 
 proc hw::stage_xsa {} {
@@ -137,28 +62,37 @@ proc hw::stage_xsa {} {
   if {![file exists $bit]} {
     hw::fail "bitstream is missing"
   }
-  if {[info exists ::hw::design_open] && $::hw::design_open} {
-    close_design
-    set ::hw::design_open 0
-  }
-  if {[llength [get_projects -quiet]]} {
-    close_project
-  }
-  set xpr [file join $::hw::build proj p24_hw p24_hw.xpr]
-  if {![file exists $xpr]} {
-    hw::fail "block design project is missing"
-  }
+  hw::ensure_routed_design
   set xsa [file join [hw::out_dir] system_top.xsa]
   puts "P24_XSA_BEGIN"
-  open_project $xpr
-  write_hw_platform -fixed -force -file $xsa
-  close_project
-  hw::xsa_add_bitstream $xsa $bit
+  write_hw_platform -fixed -include_bit -force -file $xsa
+  hw::check_xsa_payload $bit $xsa
+  hw::check_xsa_hwh $xsa
   if {$::hw::directive eq "default"} {
     file copy -force $xsa [file join $::hw::build out system_top.xsa]
   }
-  hw::check_xsa_payload $bit $xsa
   puts "P24_XSA_OK $xsa"
+}
+
+proc hw::check_xsa_hwh {xsa} {
+  set hwh [hw::extract_hwh $xsa [file join $::hw::build tmp xsa-check.hwh]]
+  set fh [open $hwh r]
+  set body [read $fh]
+  close $fh
+  foreach cell {
+    /sys_ps7
+    /openwifi_ip/openofdm_tx_0
+    /openwifi_ip/openofdm_rx_0
+    /openwifi_ip/xpu_0
+    /openwifi_ip/tx_intf_0
+    /openwifi_ip/rx_intf_0
+    /openwifi_ip/side_ch_0
+  } {
+    if {[string first "FULLNAME=\"$cell\"" $body] < 0} {
+      hw::fail "XSA hwh has no $cell"
+    }
+  }
+  puts "P24_XSA_HWH_OK"
 }
 
 proc hw::check_xsa_payload {bit xsa} {

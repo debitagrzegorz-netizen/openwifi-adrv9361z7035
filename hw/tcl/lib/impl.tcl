@@ -1,4 +1,7 @@
-# Non-project implementation: synth, opt, place, phys opt, route, hold fix.
+# Implementation as one project run per directive set (impl_<set>), child of
+# synth_1: opt, place, phys opt, route, post-route phys opt with -hold_fix.
+# Every step and directive is set here. The run ends with write_bitstream;
+# a TCL.PRE hook sets USR_ACCESS to the first 8 hex digits of the impl hash.
 
 proc hw::directive_map {name} {
   # place, route, post-place phys_opt. Synthesis stays on the tool default.
@@ -14,14 +17,6 @@ proc hw::directive_map {name} {
     return {AltSpreadLogic_medium Explore Explore}
   }
   hw::fail "unknown directive_set $name"
-}
-
-proc hw::ckpt {name} {
-  set path [file join $::hw::build ckpt $::hw::directive ${name}.dcp]
-  file mkdir [file dirname $path]
-  write_checkpoint -force $path
-  puts "P24_CKPT $path"
-  return $path
 }
 
 proc hw::report_dir {} {
@@ -66,58 +61,78 @@ proc hw::write_timing_numbers {} {
   }
 }
 
-proc hw::synth_dcp {} {
-  return [file join $::hw::build ckpt post_synth.dcp]
+proc hw::impl_run {} {
+  return "impl_$::hw::directive"
 }
 
-proc hw::stage_synth {} {
-  if {![file exists [hw::bd_project_path]]} {
-    hw::fail "block-design project is missing"
+# Run checkpoint name -> diagnostic checkpoint name under ckpt/<set>.
+proc hw::impl_ckpts {} {
+  return {
+    system_top_opt.dcp post_opt
+    system_top_placed.dcp post_place
+    system_top_physopt.dcp post_phys_opt
+    system_top_routed.dcp post_route
+    system_top_postroute_physopt.dcp post_hold
   }
-  open_project [hw::bd_project_path]
-  hw::disable_ip_cache
-  puts "P24_SYNTH_BEGIN"
-  synth_design -top system_top -part [hw::need PART]
-  file mkdir [file join $::hw::build ckpt]
-  write_checkpoint -force [hw::synth_dcp]
-  puts "P24_CKPT [hw::synth_dcp]"
-  # Drop the in-memory netlist so the saved project stays the pre-synth BD.
-  close_design
-  close_project
-  puts "P24_SYNTH_OK"
 }
 
 proc hw::stage_impl {} {
-  set synth [hw::synth_dcp]
-  if {![file exists $synth]} {
-    hw::fail "synthesis checkpoint is missing"
-  }
+  hw::open_bd_project
+  hw::check_run synth_1 synth_design
   lassign [hw::directive_map $::hw::directive] place route phys
-  puts "P24_IMPL_BEGIN place=$place route=$route phys_opt=$phys"
-  open_checkpoint $synth
-  opt_design
-  hw::ckpt post_opt
-  place_design -directive $place
-  hw::ckpt post_place
-  phys_opt_design -directive $phys
-  hw::ckpt post_phys_opt
-  route_design -directive $route
-  hw::ckpt post_route
-  phys_opt_design -hold_fix
-  hw::ckpt post_hold
+  set name [hw::impl_run]
+  if {[get_runs -quiet $name] eq ""} {
+    # Same flow as the impl_1 run that create_project made.
+    create_run $name -parent_run synth_1 -flow [get_property FLOW [get_runs impl_1]]
+  }
+  set run [get_runs $name]
+  set_property strategy {Vivado Implementation Defaults} $run
+  set_property STEPS.OPT_DESIGN.IS_ENABLED true $run
+  set_property STEPS.OPT_DESIGN.ARGS.DIRECTIVE Default $run
+  set_property STEPS.POWER_OPT_DESIGN.IS_ENABLED false $run
+  set_property STEPS.PLACE_DESIGN.ARGS.DIRECTIVE $place $run
+  set_property STEPS.POST_PLACE_POWER_OPT_DESIGN.IS_ENABLED false $run
+  set_property STEPS.PHYS_OPT_DESIGN.IS_ENABLED true $run
+  set_property STEPS.PHYS_OPT_DESIGN.ARGS.DIRECTIVE $phys $run
+  set_property STEPS.ROUTE_DESIGN.ARGS.DIRECTIVE $route $run
+  set_property STEPS.POST_ROUTE_PHYS_OPT_DESIGN.IS_ENABLED true $run
+  set_property STEPS.POST_ROUTE_PHYS_OPT_DESIGN.ARGS.DIRECTIVE Default $run
+  set_property -name {STEPS.POST_ROUTE_PHYS_OPT_DESIGN.ARGS.MORE OPTIONS} -value {-hold_fix} -objects $run
+  set ua "0x[string range [hw::stage_hash impl] 0 7]"
+  set hook [file join $::hw::build tmp usr_access_$::hw::directive.tcl]
+  file mkdir [file dirname $hook]
+  set fh [open $hook w]
+  puts $fh "set_property BITSTREAM.CONFIG.USR_ACCESS $ua \[current_design\]"
+  close $fh
+  set_property STEPS.WRITE_BITSTREAM.TCL.PRE $hook $run
+  puts "P24_IMPL_BEGIN run=$name place=$place route=$route phys_opt=$phys USR_ACCESS=$ua"
+  reset_run $name
+  launch_runs $name -to_step write_bitstream -jobs $::hw::jobs
+  wait_on_run $name
+  hw::copy_run_log $name $name
+  hw::check_run $name write_bitstream
+  set dir [file join $::hw::build ckpt $::hw::directive]
+  file mkdir $dir
+  foreach {src dst} [hw::impl_ckpts] {
+    set path [file join [hw::run_dir $name] $src]
+    if {![file exists $path]} {
+      hw::fail "$name has no $src"
+    }
+    file copy -force $path [file join $dir $dst.dcp]
+    puts "P24_CKPT [file join $dir $dst.dcp]"
+  }
+  open_run $name
   hw::write_timing_numbers
-  # Leave the routed design open for the bitstream stage in this process.
-  set ::hw::design_open 1
+  close_design
+  close_project
   puts "P24_IMPL_OK"
-}
-
-proc hw::synth_outputs_ok {} {
-  return [file exists [hw::synth_dcp]]
 }
 
 proc hw::impl_outputs_ok {} {
   return [expr {
     [file exists [file join $::hw::build ckpt $::hw::directive post_hold.dcp]] &&
+    [file exists [file join [hw::run_dir [hw::impl_run]] system_top_postroute_physopt.dcp]] &&
+    [file exists [file join [hw::run_dir [hw::impl_run]] system_top.bit]] &&
     [file exists [file join $::hw::build reports $::hw::directive timing_numbers.txt]]
   }]
 }
