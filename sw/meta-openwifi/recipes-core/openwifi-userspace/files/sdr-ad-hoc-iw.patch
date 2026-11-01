@@ -1,0 +1,77 @@
+diff --git a/user_space/sdr-ad-hoc-up.sh b/user_space/sdr-ad-hoc-up.sh
+--- a/user_space/sdr-ad-hoc-up.sh
++++ b/user_space/sdr-ad-hoc-up.sh
+@@ -17,15 +17,20 @@
+ echo $ch_number
+ echo $ip_addr
+ 
++# Channel 14 is 2484 MHz. Every other 2.4 GHz channel is 2407 + 5*N.
++if [ "$ch_number" = 14 ]; then
++  freq=2484
++else
++  freq=$((2407 + 5 * ch_number))
++fi
++
+ sudo ip link set $nic_name down
+-sudo iwconfig $nic_name mode ad-hoc
+-sudo iwconfig $nic_name essid 'sdr-ad-hoc'
++sudo iw dev $nic_name set type ibss
+ sudo ip link set $nic_name up
+-sudo iwconfig $nic_name channel $ch_number
+-#sudo iwconfig $nic_name modulation 11g
+-#sudo iwconfig $nic_name rate 6M
++sudo iw dev $nic_name ibss join 'sdr-ad-hoc' $freq
+ sudo ifconfig $nic_name $ip_addr netmask 255.255.255.0
+ ifconfig
+-iwconfig $nic_name
++iw dev $nic_name info
++iw dev $nic_name link
+ 
+ ./agc_settings.sh 1
+diff --git a/user_space/sdr-ad-hoc-join.sh b/user_space/sdr-ad-hoc-join.sh
+--- a/user_space/sdr-ad-hoc-join.sh
++++ b/user_space/sdr-ad-hoc-join.sh
+@@ -20,16 +20,20 @@
+ echo $cell
+ 
+ # sudo service network-manager stop
++# Channel 14 is 2484 MHz. Every other 2.4 GHz channel is 2407 + 5*N.
++if [ "$ch_number" = 14 ]; then
++  freq=2484
++else
++  freq=$((2407 + 5 * ch_number))
++fi
++
+ sudo ip link set $nic_name down
+-sudo iwconfig $nic_name mode ad-hoc
+-sudo iwconfig $nic_name essid 'sdr-ad-hoc'
++sudo iw dev $nic_name set type ibss
+ sudo ip link set $nic_name up
+-sudo iwconfig $nic_name channel $ch_number
+-sudo iwconfig $nic_name ap $cell
+-#sudo iwconfig $nic_name modulation 11g
+-#sudo iwconfig $nic_name rate 6M
++sudo iw dev $nic_name ibss join 'sdr-ad-hoc' $freq $cell
+ sudo ifconfig $nic_name $ip_addr netmask 255.255.255.0
+ ifconfig
+-iwconfig $nic_name
++iw dev $nic_name info
++iw dev $nic_name link
+ 
+ ./agc_settings.sh 1
+diff --git a/user_space/nic_back_to_normal.sh b/user_space/nic_back_to_normal.sh
+--- a/user_space/nic_back_to_normal.sh
++++ b/user_space/nic_back_to_normal.sh
+@@ -15,10 +15,9 @@
+ 
+ # sudo service network-manager stop
+ sudo ip link set $nic_name down
+-sudo iwconfig $nic_name mode managed
+-#sudo iwconfig $nic_name modulation 11g
++sudo iw dev $nic_name set type managed
+ sudo ip link set $nic_name up
+ ifconfig
+-iwconfig $nic_name
++iw dev $nic_name info
+ 
+ ./agc_settings.sh 1
