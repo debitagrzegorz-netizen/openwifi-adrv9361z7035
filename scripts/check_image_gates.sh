@@ -103,6 +103,7 @@ need_files = [
     "home/analog/openwifi/hostapd-openwifi-2g.conf",
     "home/analog/openwifi/dnsmasq-sdr0.conf",
     "home/analog/openwifi/sdr-ad-hoc-up.sh",
+    "home/analog/openwifi/sdr-ad-hoc-join.sh",
     "home/analog/openwifi/cw_max_min_cfg.sh",
     "home/analog/openwifi/slice_cfg.sh",
     "home/analog/openwifi/stat_enable.sh",
