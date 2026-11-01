@@ -5,9 +5,10 @@ Devices ADRV9361-Z7035 SOM on the ADRV1CRR-BOB carrier, built with AMD
 PetaLinux 2025.1.
 
 Status: the Linux image is built from a System Device Tree (SDT) project that
-`build.sh` creates. The FPGA flow is not in this tree yet. `hw/` only consumes
-a supplied XSA. The v1.0 XSA is the hardware input. The from-scratch FPGA track
-is paused.
+`build.sh` creates. This tree requires an XSA. The FPGA build is not yet
+included. The v1.0 XSA SHA256 is
+`b9a619acfff25ac07774c1afd51cc7eb1b071cb7273312407c4358c3fb525c3b`.
+`hw/` only consumes that supplied XSA. The from-scratch FPGA track is paused.
 
 ## Quick build
 
