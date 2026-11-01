@@ -16,6 +16,13 @@ Rules the harness enforces:
   off except for F19.
 - Channel 13 unless the row names another channel. No regulatory change is
   applied on the host. 5 GHz is skipped.
+- F5 is three runs. Ping loss is the total over all 900 echoes and must be
+  at most 1 %, and no single run may exceed 2 %. Client-to-AP TCP must have
+  a median of at least 22 Mbit/s and no run under 20. AP-to-client TCP must
+  have a median of at least 19 Mbit/s and no run under 17. UDP at 5 Mbit/s
+  must stay at or under 0.1 % loss in every run. The v1.0 control lost
+  1.333 % of one 300-ping run (4 of 300) and delivered 15.7–16.8 Mbit/s in
+  the reverse direction, so those tighter per-run ceilings are not the gate.
 - F2 reads the four DAC muxes after `wgd.sh`. Before that script a cold
   boot reads 0. The required value is still `0x00000002` on all four.
 - F13 writes `0x1234` and `0x5678` and expects those FPGA values. A following

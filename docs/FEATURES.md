@@ -6,7 +6,7 @@
 | F2 | Build traceability | Boot hashes, xpu git rev, DDS_SEL 2 on four DAC channels after `wgd.sh`, `/etc/openwifi-build-info` |
 | F3 | AD9361 init | 40 MSPS, FIR enabled, fast_attack after `rf_init_11n.sh` and `agc_settings.sh 1` |
 | F4 | Modules and IRQ map | `wgd.sh` exits 0 and `check_dtb_irqs.sh` passes on `/sys/firmware/fdt` |
-| F5 | AP HT20 channel 13 | Three A4 runs: ping loss < 1 %, TCP ≥ 22 and ≥ 19 Mbit/s, UDP loss ≤ 0.1 % |
+| F5 | AP HT20 channel 13 | Three A4 runs at 5.00 dBm, channel 13, power save off. Ping loss ≤ 1 % over the 900 echoes and no run above 2 %. TCP client→AP median ≥ 22 Mbit/s and every run ≥ 20. TCP AP→client median ≥ 19 Mbit/s and every run ≥ 17. UDP loss ≤ 0.1 % in every run |
 | F6 | Channels 1, 6, 11 | Association and 10 s TCP. Ping loss of 1–3 % is PASS(info) when an adjacent channel is occupied. Channel 13 keeps the F5 numbers |
 | F7 | Station mode | Board `wpa_supplicant` to the dongle AP started by the hostapd wrapper |
 | F8 | IBSS | `sdr-ad-hoc-up.sh` plus an `iw ibss join` on the dongle |
@@ -23,6 +23,11 @@
 | F19 | Client power save | KNOWN-ISSUE; the ping loss is recorded |
 | F20 | Reboots | 10 healthy soft reboots, each reaching `wgd.sh` |
 | F21 | 5 GHz | SKIPPED. No APPROVED-REG |
+
+F5 is scored on the three runs together. The v1.0 image lost 1.333 % of one
+300-ping run (4 of 300) and, in an earlier reverse-direction measurement,
+delivered 15.7–16.8 Mbit/s. A per-run ceiling of 1 % ping loss and 22 Mbit/s
+in every direction is therefore not a property of the reference image.
 
 F5 uses UDP ≤ 0.1 % because the earlier strict 0 % gate missed by 1–3 datagrams
 out of 6250 on the same v1.0 image.

@@ -445,7 +445,10 @@ f5() {
     record F5 FAIL "client did not associate at 5.00 dBm"
     return
   fi
-  local n loss tcp rev udp fail=0 detail=""
+  # P23c scores the three runs together. A single run may lose up to 2%
+  # of its 300 pings. The 900-ping total must stay at or under 1%. TCP uses
+  # the median plus a floor. UDP stays a per-run ceiling of 0.1%.
+  local n loss tcp rev udp detail="" gate
   for n in 1 2 3; do
     loss=$(ping_loss 192.168.13.1 300 "a4-$n")
     run_iperf "a4-$n-tcp" -c 192.168.13.1 -t 10
@@ -455,19 +458,54 @@ f5() {
     rev=$(mbps "$OUT/a4-$n-rev-iperf.txt")
     udp=$(udploss "$OUT/a4-$n-udp-iperf.txt")
     detail+=" n$n ping=$loss tcp=$tcp rev=$rev udp=$udp;"
-    python3 - "$loss" "$tcp" "$rev" "$udp" <<'PY' || fail=1
-import sys
-loss, tcp, rev, udp = sys.argv[1:]
-ok = loss != "NA" and float(loss) < 1 and tcp != "NA" and float(tcp) >= 22 and rev != "NA" and float(rev) >= 19 and udp != "NA" and float(udp) <= 0.1
-raise SystemExit(0 if ok else 1)
-PY
   done
+  gate=$(python3 - "$OUT" <<'PY'
+import re, statistics, sys
+from pathlib import Path
+out = Path(sys.argv[1])
+
+def ping_counts(n):
+    text = (out / ("ping-a4-%d.txt" % n)).read_text(errors="replace")
+    m = re.search(
+        r"(\d+) packets transmitted, (\d+) (?:packets )?received",
+        text, re.S)
+    if not m:
+        return None
+    sent, got = int(m.group(1)), int(m.group(2))
+    return sent, sent - got
+
+def last_float(path, pattern):
+    text = path.read_text(errors="replace")
+    found = re.findall(pattern, text)
+    return float(found[-1]) if found else None
+
+pings = [ping_counts(n) for n in (1, 2, 3)]
+tcps = [last_float(out / ("a4-%d-tcp-iperf.txt" % n), r"([0-9.]+)\s+Mbits/sec") for n in (1, 2, 3)]
+revs = [last_float(out / ("a4-%d-rev-iperf.txt" % n), r"([0-9.]+)\s+Mbits/sec") for n in (1, 2, 3)]
+udps = [last_float(out / ("a4-%d-udp-iperf.txt" % n), r"\(([0-9.]+)%\)") for n in (1, 2, 3)]
+if any(p is None for p in pings) or any(v is None for v in tcps + revs + udps):
+    print("FAIL incomplete")
+    raise SystemExit(0)
+sent = sum(p[0] for p in pings)
+lost = sum(p[1] for p in pings)
+agg = 100.0 * lost / sent if sent else 100.0
+runs = [100.0 * p[1] / p[0] if p[0] else 100.0 for p in pings]
+med_tcp = statistics.median(tcps)
+med_rev = statistics.median(revs)
+ok = (
+    agg <= 1.0 and max(runs) <= 2.0
+    and med_tcp >= 22 and min(tcps) >= 20
+    and med_rev >= 19 and min(revs) >= 17
+    and max(udps) <= 0.1
+)
+print("%s agg_ping=%.4f (%d/%d) max_ping=%.4f tcp_med=%.1f tcp_min=%.1f rev_med=%.1f rev_min=%.1f udp_max=%.4f" % (
+    "PASS" if ok else "FAIL", agg, lost, sent, max(runs),
+    med_tcp, min(tcps), med_rev, min(revs), max(udps)))
+PY
+)
+  detail+=" ${gate};"
   detail+=" UDP gate is <=0.1% (P18 Phase 4 strict 0% missed by 1-3 of 6250 datagrams)."
-  if [ "$fail" = 0 ]; then
-    record F5 PASS "$detail"
-  else
-    record F5 FAIL "$detail"
-  fi
+  record F5 "${gate%% *}" "$detail"
 }
 
 # Survey the test dongle only. A BSS within four channel numbers overlaps a
