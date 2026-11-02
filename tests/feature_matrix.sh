@@ -43,18 +43,17 @@ exec > >(tee -a "$OUT/matrix.log") 2>&1
 echo "P22_MATRIX_BEGIN image=$IMAGE_NAME out=$OUT"
 
 if [ -z "${SSHPASS:-}" ] && [ -n "${OPENWIFI_VALIDATION_SH:-}" ]; then
-  python3 - "${OPENWIFI_VALIDATION_SH}" <<'PY'
+  # The password goes into this process environment only, never into a file.
+  SSHPASS=$(python3 -I - "${OPENWIFI_VALIDATION_SH}" <<'PY'
 import re, sys
 text = open(sys.argv[1]).read()
 m = re.search(r'export SSHPASS="\$\{SSHPASS:-([^}]+)\}"', text)
 if not m:
     raise SystemExit("password source missing")
-open("/tmp/p22-matrix-env", "w").write("export SSHPASS=%s\n" % m.group(1))
+print(m.group(1))
 PY
-  chmod 600 /tmp/p22-matrix-env
-  # shellcheck disable=SC1091
-  source /tmp/p22-matrix-env
-  rm -f /tmp/p22-matrix-env
+) || SSHPASS=
+  export SSHPASS
 fi
 if [ -z "${SSHPASS:-}" ]; then
   echo "FAIL: SSHPASS is not set" >&2
@@ -256,7 +255,9 @@ dhcp-range=192.168.13.10,192.168.13.50,255.255.255.0,12h
 dhcp-option=option:router,192.168.13.1
 EOF
   scp_board "$OUT/dnsmasq.conf" /tmp/p22-dnsmasq.conf
-  board_sudo 'killall hostapd dnsmasq wpa_supplicant iperf3 2>/dev/null || true; ip link set sdr0 down || true; iw dev sdr0 set type managed; pa=$(ip -o link show sdr0 | sed -n "s/.*permaddr \([^ ]*\).*/\1/p"); if [ -n "$pa" ]; then ip link set dev sdr0 address "$pa"; fi; ip link set sdr0 up; ip addr show sdr0 | grep -q 192.168.13.1/ || ip addr add 192.168.13.1/24 dev sdr0; cd /home/analog/openwifi && ./agc_settings.sh 1 >/tmp/p22-gain.txt 2>&1; hostapd -B -P /tmp/p22-hostapd.pid /tmp/p22-hostapd.conf > /tmp/p22-hostapd.log 2>&1; dnsmasq --conf-file=/tmp/p22-dnsmasq.conf; echo HOSTAPD_RC:$?'
+  # Wait for the old daemons to exit first: a dnsmasq that is still bound to
+  # sdr0 makes the new one fail, and the client then gets no DHCP lease.
+  board_sudo 'killall hostapd dnsmasq wpa_supplicant iperf3 2>/dev/null || true; i=0; while [ "$i" -lt 50 ] && pidof hostapd dnsmasq wpa_supplicant iperf3 >/dev/null; do i=$((i+1)); sleep 0.2; done; ip link set sdr0 down || true; iw dev sdr0 set type managed; pa=$(ip -o link show sdr0 | sed -n "s/.*permaddr \([^ ]*\).*/\1/p"); if [ -n "$pa" ]; then ip link set dev sdr0 address "$pa"; fi; ip link set sdr0 up; ip addr show sdr0 | grep -q 192.168.13.1/ || ip addr add 192.168.13.1/24 dev sdr0; cd /home/analog/openwifi && ./agc_settings.sh 1 >/tmp/p22-gain.txt 2>&1; hostapd -B -P /tmp/p22-hostapd.pid /tmp/p22-hostapd.conf > /tmp/p22-hostapd.log 2>&1; dnsmasq --conf-file=/tmp/p22-dnsmasq.conf; echo HOSTAPD_RC:$?'
   local i
   # This hostapd often reaches type AP before it prints AP-ENABLED.
   for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30; do

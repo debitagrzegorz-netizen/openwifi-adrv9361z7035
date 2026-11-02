@@ -2,7 +2,9 @@
 # A new ID fails the gate. Repeated IDs are not counted.
 # BD 41-2383 is the utility-IP inline-HDL migration notice.
 # BD 41-759, Common 17-55, Designutils 20-1280, IP_Flow 19-3432,
-# PSU-1, PSU-2, and Timing 38-282 were present on the v1.0 build.
+# PSU-1 and PSU-2 were present on the v1.0 build. Timing 38-282 (timing not
+# met) was too, but the P25 flow does not emit it at any step, so it is not
+# accepted; the timing gate also checks WNS/WHS on the final routed design.
 BD 41-2383
 BD 41-759
 Common 17-55
@@ -10,4 +12,3 @@ Designutils 20-1280
 IP_Flow 19-3432
 PSU-1
 PSU-2
-Timing 38-282
