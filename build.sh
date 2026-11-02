@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # SDT PetaLinux build for ADRV9361-Z7035. Stages are idempotent.
-# all = fetch + sdt + plnx-create + sw + image. It does not flash and it does
-# not run the on-board matrix. hw is a separate Vivado entry until the
-# hardware flow is the one `all` builds.
+# all = hw + fetch + sdt + plnx-create + sw + image (hw is skipped when --xsa
+# gives the pinned v1.0 XSA). It does not flash and it does not run the
+# on-board matrix.
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")" && pwd)
@@ -111,13 +111,30 @@ load_tools() {
   fi
 }
 
+# all without --xsa uses the XSA from the hw stage. --xsa, or XSA in
+# config/local.conf for a single stage, must be the pinned v1.0 XSA.
+use_hw_xsa() {
+  [ -z "$XSA_ARG" ] && { [ "$STAGE" = all ] || [ -z "${XSA:-}" ]; }
+}
+
 xsa_path() {
   if [ -n "$XSA_ARG" ]; then
     printf '%s\n' "$XSA_ARG"
-  elif [ -n "${XSA:-}" ]; then
-    printf '%s\n' "$XSA"
+  elif use_hw_xsa; then
+    printf '%s\n' "$ROOT/build/hw/out/system_top.xsa"
   else
-    die "pass --xsa or set XSA in config/local.conf"
+    printf '%s\n' "$XSA"
+  fi
+}
+
+# SHA256 the XSA must have: the pinned v1.0 one, or the one the hw stage
+# recorded in build/hw/out/build-info.json.
+xsa_expected_sha() {
+  if use_hw_xsa; then
+    python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["xsa_sha256"])' \
+      "$ROOT/build/hw/out/build-info.json" 2>/dev/null || die "no hw build-info.json; run ./build.sh hw"
+  else
+    printf '%s\n' "$V1_0_XSA_SHA"
   fi
 }
 
@@ -182,7 +199,7 @@ stage_sdt() {
   xsa=$(xsa_path)
   [ -f "$xsa" ] || die "XSA not found"
   sha=$(sha256sum "$xsa" | awk '{print $1}')
-  [ "$sha" = "$V1_0_XSA_SHA" ] || die "XSA sha256 $sha does not match V1_0_XSA_SHA"
+  [ "$sha" = "$(xsa_expected_sha)" ] || die "XSA sha256 $sha does not match $(xsa_expected_sha)"
   if [ "$FORCE" != 1 ] && [ -f "$ROOT/build/sdt/system-top.dts" ] && [ -f "$ROOT/build/sdt/pl.dtsi" ] && [ "$(cat "$LOG/sdt.sha" 2>/dev/null || true)" = "$sha" ]; then
     echo "sdt outputs are current for $sha"
     return 0
@@ -224,7 +241,7 @@ OPENWIFI_HW_REV = "$OPENWIFI_HW_REV"
 ADI_HDL_REV = "$ADI_HDL_REV"
 OPENOFDM_RX_REV = "$OPENOFDM_RX_REV"
 META_ADI_REV = "$META_ADI_REV"
-OPENWIFI_XSA_SHA256 = "$V1_0_XSA_SHA"
+OPENWIFI_XSA_SHA256 = "$(xsa_expected_sha)"
 OPENWIFI_TOOL_VERSION = "$TOOL_VERSION"
 DL_DIR = "$DL_DIR"
 SSTATE_DIR = "$SSTATE_DIR"
@@ -443,7 +460,7 @@ info = {
   "openofdm_rx": "$OPENOFDM_RX_REV",
   "meta_adi": "$META_ADI_REV",
   "tool": "$TOOL_VERSION",
-  "xsa_sha256": "$V1_0_XSA_SHA",
+  "xsa_sha256": "$(xsa_expected_sha)",
   "board": "$BOARD",
   "dt_strategy": "B",
 }
@@ -559,6 +576,9 @@ case "$STAGE" in
   flash) stage_flash ;;
   test) run_stage test stage_test ;;
   all)
+    if use_hw_xsa; then
+      run_stage hw stage_hw
+    fi
     run_stage fetch stage_fetch
     run_stage sdt stage_sdt
     run_stage plnx-create stage_plnx

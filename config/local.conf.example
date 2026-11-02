@@ -22,7 +22,9 @@ SSTATE_DIR=
 BB_NUMBER_THREADS=8
 PARALLEL_MAKE="-j 8"
 
-# Input XSA for ./build.sh sdt when --xsa is passed. The v1.0 hash is checked.
+# Input XSA for single stages. Leave empty to use the XSA from ./build.sh hw
+# (./build.sh all always does, unless --xsa is passed). A set XSA must be the
+# pinned v1.0 XSA (V1_0_XSA_SHA).
 XSA=
 
 # Vivado jobs for ./build.sh hw. Default 8.
