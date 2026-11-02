@@ -433,8 +433,14 @@ stage_image() {
 }
 
 stage_gates() {
-  local bit
+  local bit native
   bit=$(extract_xsa_bit)
+  # mcopy comes from the build's own mtools-native, not from the host.
+  native=$ROOT/build/plnx/build/tmp/sysroots-components/x86_64/mtools-native/usr/bin
+  if [ -x "$native/mcopy" ]; then
+    export PATH="$native:$PATH"
+  fi
+  command -v mcopy >/dev/null || die "mcopy not found (mtools-native or host mtools)"
   FDTGET_PATH="${PATH}" "$ROOT/scripts/check_image_gates.sh" \
     "$ROOT/build/plnx" "$bit" "$ROOT/docs/SDT-NOTES.md"
 }
