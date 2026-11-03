@@ -31,3 +31,9 @@ do_assemble_fitimage:prepend() {
 do_assemble_fitimage_initramfs:prepend() {
     fitimage_keep_board_dtb
 }
+
+# meta-adi builds ADI's linux main with AUTOREV, so the kernel changed from one
+# build to the next. Pin the revision from config/versions.conf (build.sh
+# writes LINUX_ADI_REV into petalinuxbsp.conf).
+SRCREV = "${LINUX_ADI_REV}"
+SRCREV_machine = "${LINUX_ADI_REV}"

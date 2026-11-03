@@ -241,6 +241,8 @@ OPENWIFI_HW_REV = "$OPENWIFI_HW_REV"
 ADI_HDL_REV = "$ADI_HDL_REV"
 OPENOFDM_RX_REV = "$OPENOFDM_RX_REV"
 META_ADI_REV = "$META_ADI_REV"
+LINUX_ADI_REV = "$LINUX_ADI_REV"
+LIBIIO_REV = "$LIBIIO_REV"
 OPENWIFI_XSA_SHA256 = "$(xsa_expected_sha)"
 OPENWIFI_TOOL_VERSION = "$TOOL_VERSION"
 DL_DIR = "$DL_DIR"
@@ -465,6 +467,8 @@ info = {
   "adi_hdl": "$ADI_HDL_REV",
   "openofdm_rx": "$OPENOFDM_RX_REV",
   "meta_adi": "$META_ADI_REV",
+  "linux_adi": "$LINUX_ADI_REV",
+  "libiio": "$LIBIIO_REV",
   "tool": "$TOOL_VERSION",
   "xsa_sha256": "$(xsa_expected_sha)",
   "board": "$BOARD",
