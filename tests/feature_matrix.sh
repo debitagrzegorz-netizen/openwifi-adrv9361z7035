@@ -1322,26 +1322,38 @@ f21() {
   record F21 SKIPPED "no APPROVED-REG; 5 GHz is not tested"
 }
 
+# Driver TX watchdog counters (sysfs tx_stall_stat, openwifi 54e77c2 and later)
+# before and after every row, so a recovery or a late/net wake is tied to the
+# feature that ran. Older drivers have no such file; the line is then empty.
+txwd_snap() {
+  echo "$1 $(ssh_board 'cat /sys/devices/soc0/axi/axi:sdr/tx_stall_stat 2>/dev/null | tr "\n" " "' 2>/dev/null)" >>"$OUT/txwd.txt"
+}
+row() {
+  txwd_snap "$1 before"
+  "$1"
+  txwd_snap "$1 after"
+}
+
 # Order: identity, bring-up, DDS after wgd, link tests, injection, side channel, reboots last.
-f1
-f2
-f4_wgd
-f2_dds
-f3
-f12
-f13
-f14
-f18
-f5
-f15
-f6
-f19
-f7
-f8
-f9
-f10
-f11
-f_side
-f20
-f21
+row f1
+row f2
+row f4_wgd
+row f2_dds
+row f3
+row f12
+row f13
+row f14
+row f18
+row f5
+row f15
+row f6
+row f19
+row f7
+row f8
+row f9
+row f10
+row f11
+row f_side
+row f20
+row f21
 echo "P22_MATRIX_ROWS_DONE"
