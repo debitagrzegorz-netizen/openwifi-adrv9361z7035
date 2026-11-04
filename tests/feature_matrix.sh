@@ -349,12 +349,13 @@ f2() {
   }
   local line
   # v1.0 has no build-info file. Later images must carry the pinned
-  # SRCREVs and the v1.0 XSA hash. Boot-file hashes are image-specific.
-  # DDS is not scored here: this read is before wgd.sh.
+  # SRCREVs, an xpu git rev matching OPENWIFI_HW_REV, and a build-info
+  # bitstream hash equal to /boot/system.bit. Boot-file hashes are
+  # image-specific. DDS is not scored here: this read is before wgd.sh.
   line=$(python3 - "$OUT/f2.txt" "$IMAGE_NAME" \
     "$OPENWIFI_REV" "$OPENWIFI_HW_REV" "$ADI_HDL_REV" "$OPENOFDM_RX_REV" \
-    "$META_ADI_REV" "$V1_0_XSA_SHA" <<'PY'
-import sys
+    "$META_ADI_REV" "$LINUX_ADI_REV" "$LIBIIO_REV" <<'PY'
+import re, sys
 t = open(sys.argv[1], errors="replace").read()
 image = sys.argv[2]
 expect = sys.argv[3:]
@@ -368,8 +369,13 @@ if image == "v1.0":
     ok = hashes and git
     print(("PASS" if ok else "FAIL") + " hashes=%d git=%d buildinfo_not_required present=%d" % (int(hashes), int(git), int(info)))
 else:
-    ok = git and info
-    print(("PASS" if ok else "FAIL") + " git=%d buildinfo=%d" % (int(git), int(info)))
+    # The xpu git rev register holds the first 7 hex digits of openwifi-hw.
+    git = ("GIT 0x0" + expect[1][:7].upper()) in t
+    bit = re.search(r"^([0-9a-f]{64})  /boot/system.bit$", t, re.M)
+    bit = bool(bit) and ("bitstream_sha256=" + bit.group(1)) in t
+    xsa = re.search(r"^xsa_sha256=[0-9a-f]{64}$", t, re.M) is not None
+    ok = git and info and bit and xsa
+    print(("PASS" if ok else "FAIL") + " git=%d buildinfo=%d bit=%d xsa=%d" % (int(git), int(info), int(bit), int(xsa)))
 PY
 )
   if [ "${line%% *}" = "PASS" ]; then
