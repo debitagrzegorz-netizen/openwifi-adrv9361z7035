@@ -1,14 +1,15 @@
 # openwifi on ADRV9361-Z7035
 
-Software sources and scripts for the open-sdr/openwifi port to the Analog
-Devices ADRV9361-Z7035 SOM on the ADRV1CRR-BOB carrier, built with AMD
+Sources and scripts for the open-sdr/openwifi port to the Analog Devices
+ADRV9361-Z7035 SOM on the ADRV1CRR-BOB carrier, built with AMD Vivado and
 PetaLinux 2025.1.
 
-Status: the Linux image is built from a System Device Tree (SDT) project that
-`build.sh` creates. This tree requires an XSA. The FPGA build is not yet
-included. The v1.0 XSA SHA256 is
-`b9a619acfff25ac07774c1afd51cc7eb1b071cb7273312407c4358c3fb525c3b`.
-`hw/` only consumes that supplied XSA. The from-scratch FPGA track is paused.
+Status: v1.1 (`docs/RELEASE-v1.1.md`). One command builds the FPGA and the
+Linux image from sources. The Linux image is built from a System Device Tree
+(SDT) project that `build.sh` creates. The v1.0 XSA
+(`b9a619acfff25ac07774c1afd51cc7eb1b071cb7273312407c4358c3fb525c3b`) can
+still be supplied with `--xsa`. Known issues, including the FPGA TX-queue
+freeze that the driver recovers, are in `docs/KNOWN-ISSUES.md`.
 
 The FIT image keeps two device trees. `system-top.dtb` is the default boot
 configuration. `zynq-adrv9361-z7035-bob.dtb` is the in-kernel board tree that
@@ -20,11 +21,12 @@ source and is not copied into the FIT.
 ```
 cp config/local.conf.example config/local.conf
 # fill in tool and cache paths
-./build.sh all --xsa /path/to/system.xsa
+./build.sh all
 ```
 
-`all` runs fetch, sdt, plnx-create, sw, and image. It does not flash and it
-does not run the on-board tests. See `docs/BUILD.md`.
+`all` runs hw, fetch, sdt, plnx-create, sw, and image (about 50 minutes). It
+does not flash and it does not run the on-board tests. See `docs/BUILD.md`
+and `docs/TESTING.md`.
 
 ## Hardware
 

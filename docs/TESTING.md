@@ -55,4 +55,38 @@ Rules the harness enforces:
 - SSH password comes from `SSHPASS` or from `OPENWIFI_VALIDATION_SH` at run
   time. It is not stored in this tree.
 
+- F2 on a post-v1.0 image requires an xpu git rev equal to `0x0` followed by
+  the first 7 hex digits of `OPENWIFI_HW_REV`, and every pinned revision in
+  `/etc/openwifi-build-info`, including `LINUX_ADI_REV` and `LIBIIO_REV`.
+  The build-info bitstream hash must equal the hash of `/boot/system.bit`.
+- Before and after every row the harness appends the driver TX watchdog
+  counters to `txwd.txt` in the output directory. A recovery during a row
+  shows as a change in `stall_detect` / `stall_recover` between the two
+  lines.
+
 See `docs/FEATURES.md` for the rows.
+
+## TX watchdog checks
+
+The driver exposes three sysfs files under
+`/sys/devices/soc0/axi/axi:sdr/`:
+
+| File | Mode | Use |
+|---|---|---|
+| `tx_stall_stat` | read, root write | counters: `late_wake`, `net_wake` per queue, `stall_detect`, `stall_recover`, `retired`, `orphan_detect`, `orphan_retired`, last detection times. Any write clears them. |
+| `tx_ring_stat` | read only | per ring: BDs in flight, oldest BD age, stopped flags |
+| `tx_stall_test` | root write only | forced-fault test, see below |
+
+Forced-fault tests (run as root during traffic; never on a production
+deployment):
+
+- `echo 1 > tx_stall_test` closes the TX time slices, so the FPGA queues
+  freeze. Expect one `stall_detect` and one `stall_recover` about 1.25 s
+  later, and the traffic continues.
+- `echo 2 > tx_stall_test` drops TX completions for 300 ms, leaving
+  orphaned descriptors. Expect `orphan_detect` to rise and the descriptors to
+  be retired about 1 s later, with no stopped queue left.
+
+A healthy run of either test leaves no stopped queue in `tx_ring_stat` and
+no kernel warning in `dmesg`.
+
