@@ -727,6 +727,22 @@ f8() {
     record F8 FAIL "host route to the board is not the dongle"
     return
   fi
+  # The board-side warm-up does not resolve the host's neighbour entry for
+  # the board, so the first host echo could be lost. Warm up that direction
+  # too; these echoes are not scored.
+  ready=0
+  for i in 1 2 3 4 5 6 7 8; do
+    ping -c 3 -W 1 192.168.13.1 >"$OUT/f8-host-warm.txt" 2>&1 || true
+    if grep -q 'bytes from' "$OUT/f8-host-warm.txt"; then
+      ready=1
+      break
+    fi
+    sleep 1
+  done
+  if [ "$ready" != 1 ]; then
+    record F8 FAIL "host did not reach the board over the IBSS"
+    return
+  fi
   local loss bloss
   loss=$(ping_loss 192.168.13.1 100 f8)
   board_sudo 'ping -c 100 -i 0.2 -W 1 192.168.13.19' >"$OUT/f8-board-ping.txt" 2>&1 || true
