@@ -19,7 +19,7 @@
 | F15 | Statistics | `stat_enable.sh` and the tx/rx stat scripts around traffic |
 | F16 | side_ch CSI | At least 18 UDP datagrams, each a multiple of 3792 bytes |
 | F17 | side_ch IQ | At least 14 datagrams of 32768 bytes at `iq_len_init=4095` |
-| F18 | TX power | KNOWN-ISSUE until a before/after attenuation measurement |
+| F18 | TX power | AP up: `txpower fixed 1000` gives −10 dB AD9361 attenuation, `auto` restores the original value (gated on the measured attenuation) |
 | F19 | Client power save | KNOWN-ISSUE; the ping loss is recorded |
 | F20 | Reboots | 10 healthy soft reboots, each reaching `wgd.sh` |
 | F21 | 5 GHz | SKIPPED. No APPROVED-REG |

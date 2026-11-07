@@ -44,9 +44,13 @@ planned for v1.2. The matrix still reports F17 as FAIL.
 
 ## Other issues
 
-- **TX power (F18).** `iw set txpower` stays KNOWN-ISSUE. The mac80211
-  TX-power hook is in the driver, but a before/after attenuation measurement
-  on a booted image is still required.
+- **TX power (F18), resolved in the harness.** `iw set txpower` works: a
+  10 dBm limit gives −10 dB TX attenuation. The old F18 row set this limit and
+  never removed it, so every later row ran with the AP 10 dB weaker; on a weak
+  bench the client then scanned off channel and F5 lost about 27 % of pings.
+  F18 now measures the attenuation with the AP up and restores `auto`. The
+  `txpower` value that `iw dev sdr0 info` prints can lag the change, so the row
+  scores the attenuation only.
 - **AP power-save clients (F19).** Ping to a client in power save is
   KNOWN-ISSUE. The previous power-save driver change was reverted.
 - **Near-field saturation.** At 30–50 cm a client at 20 dBm saturates the

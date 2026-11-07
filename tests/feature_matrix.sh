@@ -1251,12 +1251,48 @@ PY
 }
 
 f18() {
-  board_sudo 'iw dev sdr0 set txpower fixed 1000' >"$OUT/f18.txt" 2>&1 || true
-  if grep -q -i 'not supported' "$OUT/f18.txt" || grep -q 'EOPNOTSUPP' "$OUT/f18.txt" || grep -q 'Operation not supported' "$OUT/f18.txt"; then
-    record F18 KNOWN-ISSUE "iw set txpower returns -EOPNOTSUPP. .set_txpower is not implemented."
-  else
-    record F18 KNOWN-ISSUE "command output did not show -EOPNOTSUPP; see f18.txt. Still classified KNOWN-ISSUE until a before/after attenuation measurement exists."
+  # The TX power limit is kept by mac80211 and applied as AD9361 TX
+  # attenuation when the interface runs. Measure it with the AP up, then put
+  # it back: a limit left set here would weaken the AP in every later row.
+  if ! bringup_ap 13; then
+    record F18 FAIL "hostapd did not reach AP-ENABLED"
+    return
   fi
+  board_sudo 'a=/sys/bus/iio/devices/iio:device0/out_voltage0_hardwaregain
+p() { echo "$1 txp=$(iw dev sdr0 info | sed -n "s/.*txpower \([-0-9.]*\) dBm.*/\1/p") att=$(sed "s/ dB.*//" $a)"; }
+p BEFORE
+iw dev sdr0 set txpower fixed 1000; echo SET_RC=$?; sleep 1
+p LIMITED
+iw dev sdr0 set txpower auto; echo AUTO_RC=$?; sleep 1
+p RESTORED
+killall hostapd dnsmasq 2>/dev/null; ip link set sdr0 down' >"$OUT/f18.txt" 2>&1 || true
+  local verdict
+  verdict=$(python3 - "$OUT/f18.txt" <<'PY'
+import re, sys
+t = open(sys.argv[1]).read()
+v = {}
+for tag in ("BEFORE", "LIMITED", "RESTORED"):
+    m = re.search(r"^%s txp=([-0-9.]+) att=([-0-9.]+)" % tag, t, re.M)
+    v[tag] = (float(m.group(1)), float(m.group(2))) if m else None
+rc = dict(re.findall(r"^(SET_RC|AUTO_RC)=(\d+)", t, re.M))
+if None in v.values() or rc.get("SET_RC") != "0" or rc.get("AUTO_RC") != "0":
+    print("FAIL incomplete measurement rc=%s; see f18.txt" % rc)
+    raise SystemExit
+b, l, r = v["BEFORE"], v["LIMITED"], v["RESTORED"]
+d = "before=%.2fdBm/%.2fdB limited=%.2fdBm/%.2fdB restored=%.2fdBm/%.2fdB" % (b + l + r)
+# The gate is the AD9361 attenuation. The txpower that iw reports can lag
+# the change by seconds, so it is recorded but not scored.
+ok_limit = abs((l[1] - b[1]) + 10.0) <= 0.5
+ok_restore = abs(r[1] - b[1]) <= 0.25
+if ok_limit and ok_restore:
+    print("PASS 10 dBm limit gives -10 dB attenuation, auto restores it; " + d)
+elif not ok_restore:
+    print("FAIL limit not restored, later rows would run attenuated; " + d)
+else:
+    print("FAIL 10 dBm limit did not change attenuation by -10 dB; " + d)
+PY
+)
+  record F18 "${verdict%% *}" "${verdict#* }"
 }
 
 f19() {
