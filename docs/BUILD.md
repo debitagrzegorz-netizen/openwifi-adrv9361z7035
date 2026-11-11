@@ -9,6 +9,65 @@ cp config/local.conf.example config/local.conf
 ./build.sh all
 ```
 
+## Build host
+
+| Host | Status |
+|---|---|
+| Ubuntu 24.04 LTS | **Supported build host** (from v1.2 on). A clean-room `./build.sh all` of the v1.2 sources gives an equivalent image: BOOT.BIN, system.dtb, the bitstream payload and all kernel and module code are bit-identical to the 22.04 build. The only differences are timestamps, build paths and the kernel version hash (see below). PetaLinux 2025.1 prints `[WARNING] This is not a supported OS` on 24.04. The warning is informational and the build continues. |
+| Ubuntu 22.04 LTS | Validated up to v1.2 (history). It is a PetaLinux 2025.1 supported host and still works, but it is no longer the reference. |
+
+Required host settings (both hosts):
+
+- `/bin/sh` must be bash. PetaLinux refuses dash.
+- On 24.04 (and Ubuntu 23.10 or later), AppArmor blocks the unprivileged
+  user namespaces that bitbake needs. Set
+  `kernel.apparmor_restrict_unprivileged_userns = 0` in a file under
+  `/etc/sysctl.d/`.
+- The `en_US.UTF-8` locale must be generated.
+- The PetaLinux host packages must be installed. On 24.04, `libsdl1.2-dev`
+  is called `libsdl1.2-compat-dev`.
+- A clean-room build with cold native sstate needs about 120 GB free.
+  `build.sh` stops below 30 GB.
+
+`tools/check_host.sh [--dir <build dir>] [--bench]` checks these settings
+read-only. It needs no sudo, changes nothing, and prints each missing item
+with the command that fixes it. `--bench` also checks the tools the on-air
+test harness uses. The exit status is 0 when the build prerequisites are met.
+
+The kernel version string ends in `-g<hash>`. That hash is the commit
+Yocto makes of the unpacked kernel source, so it changes with the build
+time and the host's git identity even when the source tree is identical.
+Compare the kernel tree hash and the code sections, not the version
+string.
+
+## Test bench host
+
+The on-air harness (`tests/feature_matrix.sh`) is validated on Ubuntu 24.04
+with the HWE kernel 7.0 and an RT3572 USB test radio (rt2800usb). The harness
+handles the known quirks of this kernel and radio:
+
+- The per-interface TX power limit is not always applied to an associated
+  client, so the harness also sets the phy limit and checks the result.
+- After a down/up in monitor mode the radio stops receiving OFDM frames. The
+  harness brings the interface up once in managed mode before every switch to
+  monitor mode, and the injection rows check that frames arrive before they
+  score (otherwise the row is `BENCH`, never `PASS`).
+- The client joins at the test power (5 dBm). At 20 dBm and 30-50 cm the
+  board's receiver saturates.
+- An off-channel scan of the test radio during a measurement loses about half
+  of the AP's frames. The harness waits until no scan is in progress before a
+  measured row and records the scan events of every row in the report.
+- The harness turns off NetworkManager autoconnect for the test radio during a
+  run and restores the recorded setting at the end.
+
+During a run, do not open the GNOME Wi-Fi settings panel or the quick-settings
+Wi-Fi menu, and do not press the laptop's Wi-Fi/airplane key. All of them make
+the test radio scan or switch it off. Set the UART to 115200 8N1 before a run
+(`stty -F /dev/ttyUSB0 115200 raw -echo`); the F1 console probe gets no prompt
+at another speed.
+
+## Stages
+
 `all` builds the FPGA first (`hw`) and then the software image. With
 `--xsa <v1.0.xsa>` it skips `hw` and uses the supplied v1.0 XSA instead.
 
