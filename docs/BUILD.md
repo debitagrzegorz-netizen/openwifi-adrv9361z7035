@@ -62,9 +62,10 @@ handles the known quirks of this kernel and radio:
 
 During a run, do not open the GNOME Wi-Fi settings panel or the quick-settings
 Wi-Fi menu, and do not press the laptop's Wi-Fi/airplane key. All of them make
-the test radio scan or switch it off. Set the UART to 115200 8N1 before a run
-(`stty -F /dev/ttyUSB0 115200 raw -echo`); the F1 console probe gets no prompt
-at another speed.
+the test radio scan or switch it off. The F1 console probe sets the UART
+(`UART_DEV` in `config/local.conf`) to 115200 8N1 raw itself and gives up
+after 3 s, so no manual `stty` is needed and a silent console cannot block
+the run.
 
 ## Stages
 

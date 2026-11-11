@@ -366,21 +366,45 @@ f1() {
     getent hosts openwifi.local >"$OUT/f1-mdns.txt" 2>&1 && mdns=1 || true
   fi
   if [ -n "${UART_DEV:-}" ] && [ -c "$UART_DEV" ]; then
-    python3 - "$UART_DEV" "$OUT/f1-uart.txt" <<'PY' || true
-import sys, time
-dev, dest = sys.argv[1:]
+    # The probe sets the console line itself (115200 8N1 raw; a host reboot
+    # leaves the USB UART at 9600) and reads with a bounded timeout, so it
+    # can never block the matrix. The outer timeout is a second bound.
+    timeout 10 python3 - "$UART_DEV" "$OUT/f1-uart.txt" "$OUT/f1-uart-tty.txt" <<'PY' || true
+import os, select, sys, termios, time
+dev, dest, ttyinfo = sys.argv[1:]
+speeds = {v: k for k, v in vars(termios).items() if k.startswith("B") and k[1:].isdigit()}
+data = b""
 try:
-    f = open(dev, "rb", buffering=0)
-    w = open(dev, "wb", buffering=0)
-    w.write(b"\n")
-    w.close()
-    time.sleep(1.5)
-    data = f.read(4096)
-    f.close()
+    fd = os.open(dev, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
+    try:
+        attr = termios.tcgetattr(fd)
+        before = speeds.get(attr[5], str(attr[5]))
+        attr[0] = 0                                    # iflag: raw
+        attr[1] = 0                                    # oflag: raw
+        attr[2] = termios.CS8 | termios.CREAD | termios.CLOCAL  # 8N1, no flow control
+        attr[3] = 0                                    # lflag: no echo, non-canonical
+        attr[4] = attr[5] = termios.B115200
+        attr[6][termios.VMIN] = 0
+        attr[6][termios.VTIME] = 0
+        termios.tcsetattr(fd, termios.TCSANOW, attr)
+        termios.tcflush(fd, termios.TCIFLUSH)
+        open(ttyinfo, "w").write("speed_before=%s speed_set=B115200\n" % before)
+        os.write(fd, b"\n")
+        deadline = time.monotonic() + 3.0
+        while time.monotonic() < deadline and b"login:" not in data and len(data) < 4096:
+            r, _, _ = select.select([fd], [], [], max(0.0, deadline - time.monotonic()))
+            if r:
+                chunk = os.read(fd, 4096)
+                if not chunk:
+                    break
+                data += chunk
+    finally:
+        os.close(fd)
     open(dest, "wb").write(data)
 except OSError as exc:
     open(dest, "w").write("UART_ERROR %s\n" % exc)
 PY
+    [ -f "$OUT/f1-uart.txt" ] || echo "UART_ERROR probe timed out" >"$OUT/f1-uart.txt"
     if grep -a -q 'login:' "$OUT/f1-uart.txt"; then
       uart="login-prompt"
     elif grep -q UART_ERROR "$OUT/f1-uart.txt"; then
