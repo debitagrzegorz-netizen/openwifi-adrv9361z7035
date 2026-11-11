@@ -5,15 +5,41 @@
 ```
 
 The command writes `build/features/FEATURES-<image>-<date>.md` and `.json`.
-Each row is PASS, PASS(info), FAIL, SKIPPED with a reason, or KNOWN-ISSUE.
+Each row is PASS, PASS(info), FAIL, SKIPPED with a reason, KNOWN-ISSUE, or
+BENCH.
+
+**BENCH** means the row was not scored because the host test radio was not
+in a usable state (for example, F10/F11 when the host radio does not receive
+the board's frames after the switch to monitor mode). BENCH is not a pass:
+the row has not been tested, and the run must be repeated after the bench
+is fixed.
+
+**Bench host.** The harness is validated on Ubuntu 24.04 with the HWE kernel
+`7.0.0-42-generic` and an RT3572 test radio (rt2800usb). The report header
+records the host kernel and the radio driver's srcversion, because the test
+radio's behaviour depends on them.
 
 Rules the harness enforces:
 
 - The management Wi-Fi interface is only read, never reconfigured. Its
   `nmcli` line must be unchanged at the end.
 - The test dongle is `TEST_RADIO_IF` from `config/local.conf`.
-- Link tests start only after `iw` reports `txpower 5.00 dBm`. Power save is
-  off except for F19.
+- Link tests start only after `iw` reports `txpower 5.00 dBm`. The harness
+  sets both the phy and the per-interface limit, and sets them before the
+  client joins. Power save is off except for F19.
+- Scan-idle wait. One `iw event` listener runs for the whole matrix. After
+  each association and at the start of each row, the harness waits (at most
+  20 s) until the test radio's last scan event is not "scan started". The
+  wait is logged in `scanwait.txt`. A timeout is noted as bench evidence and
+  does not block or fail the row.
+- Before every switch to monitor mode the test radio is brought up once in
+  managed mode. F10 and F11 first check that the host receives frames the
+  board injects (at least 8 of 20). If not, the row is BENCH.
+- NetworkManager autoconnect of the test radio is turned off for the run and
+  restored to its recorded value at the end (also on Ctrl-C). Connection
+  profiles are never edited.
+- The F1 console probe sets `UART_DEV` to 115200 8N1 raw and gives up after
+  3 s. The console result is informational in F1.
 - Channel 13 unless the row names another channel. No regulatory change is
   applied on the host. 5 GHz is skipped.
 - F5 is three runs. Ping loss is the total over all 900 echoes and must be
@@ -63,6 +89,23 @@ Rules the harness enforces:
   counters to `txwd.txt` in the output directory. A recovery during a row
   shows as a change in `stall_detect` / `stall_recover` between the two
   lines.
+
+## Bench evidence per row
+
+After the result table, each report has a section "Bench evidence per row
+(informational, never pass/fail)". For each row it lists:
+- power save of the test radio at the row start and end;
+- whether Wi-Fi is rfkill-blocked;
+- whether the GNOME Settings process (`gnome-control-center`) is running;
+- the number of scan events of the test radio during the row;
+- the scan-idle wait.
+
+The raw data is in `bench-rows.tsv`, `scanwait.txt` and `iw-event.txt` in the
+output directory. Use it to tell a bench problem from a board problem: for
+example, scan events inside a link row with loss point to the host. The
+quick-settings Wi-Fi menu has no process of its own and is not detected.
+Do not open the Wi-Fi panel or the menu, or press the Wi-Fi key, during a
+run (`docs/KNOWN-ISSUES.md`).
 
 See `docs/FEATURES.md` for the rows.
 

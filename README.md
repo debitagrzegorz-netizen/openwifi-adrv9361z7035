@@ -4,12 +4,13 @@ Sources and scripts for the open-sdr/openwifi port to the Analog Devices
 ADRV9361-Z7035 SOM on the ADRV1CRR-BOB carrier, built with AMD Vivado and
 PetaLinux 2025.1.
 
-Status: v1.1 (`docs/RELEASE-v1.1.md`). One command builds the FPGA and the
+Status: v1.2 (`docs/RELEASE-v1.2.md`). v1.2 fixes the FPGA TX-queue freeze
+in the hardware; the driver watchdog stays as a safety net. Previous release:
+v1.1 (`docs/RELEASE-v1.1.md`). One command builds the FPGA and the
 Linux image from sources. The Linux image is built from a System Device Tree
 (SDT) project that `build.sh` creates. The v1.0 XSA
 (`b9a619acfff25ac07774c1afd51cc7eb1b071cb7273312407c4358c3fb525c3b`) can
-still be supplied with `--xsa`. Known issues, including the FPGA TX-queue
-freeze that the driver recovers, are in `docs/KNOWN-ISSUES.md`.
+still be supplied with `--xsa`. Known issues are in `docs/KNOWN-ISSUES.md`.
 
 The FIT image keeps two device trees. `system-top.dtb` is the default boot
 configuration. `zynq-adrv9361-z7035-bob.dtb` is the in-kernel board tree that
