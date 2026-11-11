@@ -41,6 +41,11 @@ fi
 
 exec > >(tee -a "$OUT/matrix.log") 2>&1
 echo "P22_MATRIX_BEGIN image=$IMAGE_NAME out=$OUT"
+# The test radio's behaviour depends on the host kernel (P27i), so record it.
+HOST_KERNEL=$(uname -r)
+RADIO_DRV=$(basename "$(readlink -f "/sys/class/net/$WLX/device/driver" 2>/dev/null)" 2>/dev/null)
+RADIO_SRCVERSION=$(modinfo -F srcversion "${RADIO_DRV:-rt2800usb}" 2>/dev/null)
+echo "P22_HOST kernel=$HOST_KERNEL radio_driver=${RADIO_DRV:-unknown} srcversion=${RADIO_SRCVERSION:-unknown}"
 
 if [ -z "${SSHPASS:-}" ] && [ -n "${OPENWIFI_VALIDATION_SH:-}" ]; then
   # The password goes into this process environment only, never into a file.
@@ -94,6 +99,15 @@ snapshot_uplink() {
   nmcli -t -f DEVICE,STATE,CONNECTION device status | awk -F: '$1=="wlp4s0"'
 }
 
+# NetworkManager may hold a profile that autoconnects the test radio. The run
+# turns off device autoconnect (never the profile) and restores the recorded value.
+WLX_AUTOCONNECT=$(nmcli -g GENERAL.AUTOCONNECT device show "$WLX" 2>/dev/null || true)
+restore_autoconnect() {
+  case "$WLX_AUTOCONNECT" in
+    yes|no) nmcli device set "$WLX" autoconnect "$WLX_AUTOCONNECT" >/dev/null 2>&1 || true ;;
+  esac
+}
+
 restore_host() {
   sudo -n /usr/local/sbin/openwifi-hostapd-ctl stop >/dev/null 2>&1 || true
   nmcli device disconnect "$WLX" >/dev/null 2>&1 || true
@@ -104,8 +118,10 @@ restore_host() {
   sudo -n /usr/sbin/iw dev "$WLX" set type managed >/dev/null 2>&1 || true
   sudo -n /usr/sbin/iw dev "$WLX" set power_save on >/dev/null 2>&1 || true
   sudo -n /usr/sbin/iw dev "$WLX" set txpower fixed 2000 >/dev/null 2>&1 || true
+  sudo -n /usr/sbin/iw phy "$(wlx_phy)" set txpower fixed 2000 >/dev/null 2>&1 || true
   sudo -n /usr/sbin/ip addr flush dev "$WLX" >/dev/null 2>&1 || true
   nmcli device set "$WLX" managed yes >/dev/null 2>&1 || true
+  restore_autoconnect
   board_sudo 'killall hostapd dnsmasq iperf3 wpa_supplicant side_ch_ctl 2>/dev/null || true; ip link set sdr0 down >/dev/null 2>&1 || true; rmmod side_ch >/dev/null 2>&1 || true' >/dev/null 2>&1 || true
 }
 
@@ -115,12 +131,24 @@ write_report() {
     echo
     echo "Log directory: build/features/${IMAGE_NAME}-${STAMP}"
     echo
+    echo "Host: kernel ${HOST_KERNEL}, test radio ${RADIO_DRV:-unknown} srcversion ${RADIO_SRCVERSION:-unknown}"
+    echo
     echo "| ID | Status | Detail |"
     echo "|---|---|---|"
     local id
     for id in F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21; do
       echo "| $id | ${RESULT[$id]:-SKIPPED} | ${DETAIL[$id]:-not recorded} |"
     done
+    if [ -s "$OUT/bench-rows.tsv" ]; then
+      echo
+      echo "## Bench evidence per row (informational, never pass/fail)"
+      echo
+      echo "power_save / Wi-Fi rfkill / gnome-control-center at row start -> end; scan events of the test radio during the row; scan-idle wait."
+      echo
+      echo "| row | power_save | Wi-Fi rfkill | gnome-control-center | scan events | scan wait s |"
+      echo "|---|---|---|---|---|---|"
+      awk -F'\t' 'NR>1{printf "| %s | %s -> %s | %s -> %s | %s -> %s | %s | %s |\n", $1,$2,$3,$4,$5,$6,$7,$8,$9}' "$OUT/bench-rows.tsv"
+    fi
   } >"$REPORT"
   python3 - "$REPORT" "$JSON" <<'PY'
 import json, sys
@@ -137,6 +165,7 @@ PY
 
 finalize() {
   local rc=$?
+  [ -n "${SCAN_EVT_PID:-}" ] && kill "$SCAN_EVT_PID" 2>/dev/null || true
   restore_host || true
   snapshot_uplink >"$OUT/uplink-end.txt" || true
   write_report || true
@@ -150,16 +179,31 @@ finalize() {
     echo "P22_MATRIX_DONE"
   fi
 }
+# restore_host (run from the EXIT trap) uses wlx_phy, so define it first.
+wlx_phy() { iw dev "$WLX" info 2>/dev/null | awk '/wiphy/{print "phy"$2; exit}'; }
 trap finalize EXIT
+# Run the EXIT trap (restore_host) on Ctrl-C or kill too.
+trap 'exit 130' INT
+trap 'exit 143' TERM
+# One unprivileged nl80211 event listener for the whole run (scan evidence and the
+# scan-idle precondition). Bounded by timeout; stopped in finalize.
+SCAN_LOG=$OUT/iw-event.txt
+timeout 14400 iw event -t >"$SCAN_LOG" 2>&1 &
+SCAN_EVT_PID=$!
 
 UPLINK_START=$(snapshot_uplink || true)
 printf '%s\n' "$UPLINK_START" >"$OUT/uplink-start.txt"
 echo "P22_UPLINK $UPLINK_START"
+echo "P22_AUTOCONNECT $WLX was=${WLX_AUTOCONNECT:-unknown} run=no"
+nmcli device set "$WLX" autoconnect no >/dev/null 2>&1 || true
 
 require_txpower() {
   local i info
   for i in 1 2 3 4 5 6 7 8; do
     sudo -n /usr/sbin/iw dev "$WLX" set txpower fixed 500 >"$OUT/txpower-set.txt" 2>&1 || true
+    # Host kernel 7.0 (Ubuntu 24.04): the per-vif limit is not applied to an
+    # associated rt2800usb client (board RSSI unchanged); the phy limit is.
+    sudo -n /usr/sbin/iw phy "$(wlx_phy)" set txpower fixed 500 >>"$OUT/txpower-set.txt" 2>&1 || true
     info=$(sudo -n /usr/sbin/iw dev "$WLX" info 2>/dev/null || true)
     printf '%s\n' "$info" >"$OUT/txpower-iw.txt"
     if printf '%s\n' "$info" | grep -q 'txpower 5.00 dBm'; then
@@ -175,6 +219,16 @@ set_host_type() {
   local i info
   nmcli device set "$WLX" managed no >/dev/null 2>&1 || true
   for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
+    if [ "$want" = monitor ]; then
+      # P27i K1 (host kernel 7.0, rt2800usb): a down/up while in monitor mode
+      # leaves the radio deaf to OFDM frames (0/160 board frames; CCK still
+      # passes). Bringing the interface up once in managed mode before the
+      # switch restores reception (152-160/160 in 9/9 trials). A scan is not needed.
+      sudo -n /usr/sbin/ip link set "$WLX" down >/dev/null 2>&1 || true
+      sudo -n /usr/sbin/iw dev "$WLX" set type managed >/dev/null 2>&1 || true
+      sudo -n /usr/sbin/ip link set "$WLX" up >/dev/null 2>&1 || true
+      sleep 1
+    fi
     sudo -n /usr/sbin/ip link set "$WLX" down >/dev/null 2>&1 || true
     sudo -n /usr/sbin/iw dev "$WLX" set type "$want" >/dev/null 2>&1 || true
     sudo -n /usr/sbin/ip link set "$WLX" up >/dev/null 2>&1 || true
@@ -274,6 +328,12 @@ associate() {
   nmcli device set "$WLX" managed yes || true
   nmcli connection delete p22-reg >/dev/null 2>&1 || true
   local i
+  # Join at the test power, not at 20 dBm. At 20 dBm and 30-50 cm the board
+  # front end saturates (P27i: ~1.6 retries/frame, AP drops the client with
+  # reason 7, DHCP times out). require_txpower below still verifies 5.00 dBm
+  # after the association; this only moves the first setting earlier.
+  sudo -n /usr/sbin/iw phy "$(wlx_phy)" set txpower fixed 500 >/dev/null 2>&1 || true
+  sudo -n /usr/sbin/iw dev "$WLX" set txpower fixed 500 >/dev/null 2>&1 || true
   for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
     nmcli -t -f SSID,CHAN dev wifi list ifname "$WLX" --rescan yes >"$OUT/nmcli-list.txt" 2>>"$OUT/nmcli.txt" || true
     if grep -q '^openwifi:' "$OUT/nmcli-list.txt"; then
@@ -282,6 +342,7 @@ associate() {
         nmcli connection up p22-reg >>"$OUT/nmcli.txt" 2>&1 || true
         sudo -n /usr/sbin/iw dev "$WLX" set power_save off >/dev/null 2>&1 || true
         if require_txpower && ip -4 addr show "$WLX" | grep -q '192.168.13.'; then
+          wait_scan_idle associate || true
           return 0
         fi
       fi
@@ -769,6 +830,36 @@ inject_bin() {
   board_sudo 'if [ -f /home/analog/openwifi/inject_80211 ] && [ ! -d /home/analog/openwifi/inject_80211 ]; then echo /home/analog/openwifi/inject_80211; elif [ -x /home/analog/openwifi/inject_80211/inject_80211.arm ]; then echo /home/analog/openwifi/inject_80211/inject_80211.arm; else echo MISSING; fi'
 }
 
+# Host captures drop to this user (tcpdump -Z), so a capture that never sees
+# its -c count can always be stopped. A root-owned tcpdump could not be.
+CAP_USER=$(id -un)
+stop_capture() {
+  local pid=$1 i
+  for i in 1 2 3 4 5 6 7 8 9 10; do
+    ps -p "$pid" >/dev/null 2>&1 || break
+    sleep 0.2
+  done
+  pkill -u "$CAP_USER" -x tcpdump 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+}
+# Bench precheck for rows that need the host radio in monitor mode: the board
+# injects 20 frames (6 Mb/s OFDM) and the host must capture at least 8. If it
+# does not, the row is BENCH (host radio state), never PASS.
+HOST_RX_DETAIL=
+host_rx_alive() {
+  local bin=$1 tag=$2 pcap n tpid
+  pcap=$OUT/rxcheck-${tag}.pcap
+  sudo -n /usr/bin/tcpdump -Z "$CAP_USER" -U -n -i "$WLX" -c 15 -w "$pcap" 'wlan addr2 00:00:00:c0:ff:ee' >"$pcap.tcp" 2>&1 &
+  tpid=$!
+  sleep 0.6
+  board_sudo "$bin -m g -r 0 -t d -n 20 -d 20000 -s 100 -a 000000000001 -b 000000c0ffee sdr0" >"$pcap.inj" 2>&1 || true
+  stop_capture "$tpid"
+  # One header line per frame (the payload hex lines start with whitespace).
+  n=$(/usr/bin/tcpdump -n -e -r "$pcap" 2>/dev/null | grep -c ' Mb/s ' || true)
+  HOST_RX_DETAIL="host monitor RX precheck ${n}/15 frames"
+  [ "${n:-0}" -ge 8 ]
+}
+
 f9() {
   if ! board_monitor; then
     record F9 FAIL "monitor_ch.sh did not reach channel 13"
@@ -812,17 +903,21 @@ f10() {
     record F10 FAIL "inject_80211 missing on the board"
     return
   fi
+  if ! host_rx_alive "$bin" f10; then
+    record F10 BENCH "$HOST_RX_DETAIL: host radio not receiving after the monitor switch; row not scored"
+    return
+  fi
   local mode idx token size count fail=0 detail=""
   for spec in "g 0 6" "g 4 24" "g 7 54" "n 0 6.5" "n 4 39.0" "n 7 65.0"; do
     set -- $spec
     mode=$1; idx=$2; token=$3
     for size in 100 500 1400; do
       local pcap=$OUT/f10-${mode}-r${idx}-s${size}.pcap
-      sudo -n /usr/bin/tcpdump -U -n -i "$WLX" -c 15 -w "$pcap" 'wlan addr2 00:00:00:c0:ff:ee' >"$OUT/f10-${mode}-r${idx}-s${size}.tcp" 2>&1 &
+      sudo -n /usr/bin/tcpdump -Z "$CAP_USER" -U -n -i "$WLX" -c 15 -w "$pcap" 'wlan addr2 00:00:00:c0:ff:ee' >"$OUT/f10-${mode}-r${idx}-s${size}.tcp" 2>&1 &
       local tpid=$!
       sleep 0.4
       board_sudo "$bin -m $mode -r $idx -t d -n 20 -d 20000 -s $size -a 000000000001 -b 000000c0ffee sdr0" >"$OUT/f10-${mode}-r${idx}-s${size}.txt" 2>&1 || true
-      reap_pid "$tpid"
+      stop_capture "$tpid"
       count=$(sudo -n /usr/bin/tcpdump -n -e -r "$pcap" 2>/dev/null | grep -c ' Mb/s ' || true)
       detail+=" ${mode}r${idx}s${size}=${count};"
       if [ "${count:-0}" -lt 8 ]; then
@@ -833,7 +928,7 @@ f10() {
       fi
     done
   done
-  record F10 "$([ "$fail" = 0 ] && echo PASS || echo FAIL)" "$detail"
+  record F10 "$([ "$fail" = 0 ] && echo PASS || echo FAIL)" "$HOST_RX_DETAIL;$detail"
 }
 
 f11() {
@@ -843,6 +938,12 @@ f11() {
   fi
   if ! set_host_type monitor 13; then
     record F11 FAIL "host monitor failed"
+    return
+  fi
+  local rxbin
+  rxbin=$(inject_bin | tr -d '\r' | tail -n 1)
+  if [ "$rxbin" = "MISSING" ] || ! host_rx_alive "$rxbin" f11; then
+    record F11 BENCH "${HOST_RX_DETAIL:-inject_80211 missing}: host radio not in a working monitor state; row not scored"
     return
   fi
   local mode idx count fail=0 detail="" k bp
@@ -865,7 +966,7 @@ f11() {
     detail+=" ${mode}r${idx}=${count};"
     [ "${count:-0}" -ge 5 ] || fail=1
   done
-  record F11 "$([ "$fail" = 0 ] && echo PASS || echo FAIL)" "host inject via C2 wrapper; $detail"
+  record F11 "$([ "$fail" = 0 ] && echo PASS || echo FAIL)" "host inject via C2 wrapper; $HOST_RX_DETAIL; $detail"
 }
 
 f12() {
@@ -1386,9 +1487,56 @@ f21() {
 txwd_snap() {
   echo "$1 $(ssh_board 'cat /sys/devices/soc0/axi/axi:sdr/tx_stall_stat 2>/dev/null | tr "\n" " "' 2>/dev/null)" >>"$OUT/txwd.txt"
 }
+# P27i S4: an off-channel scan of the test radio during a measurement drops about
+# half of the AP's frames (the radio leaves the channel every ~0.45 s). Before a
+# measured row, wait until no scan of the test radio is in progress (bounded).
+# This is a precondition, not a gate: a timeout is logged as BENCH evidence only.
+SCAN_WAIT_MAX=${SCAN_WAIT_MAX:-20}
+SCAN_WAIT_TOTAL=0
+scan_in_progress() {
+  # The last scan event of the test radio decides: "scan started" = in progress.
+  grep -E ": $WLX .*: scan (started|finished|aborted)" "$SCAN_LOG" 2>/dev/null | tail -n 1 | grep -q 'scan started'
+}
+wait_scan_idle() {
+  local tag=$1 t0 waited
+  t0=$(date +%s.%N)
+  while scan_in_progress; do
+    waited=$(awk -v a="$t0" -v b="$(date +%s.%N)" 'BEGIN{printf "%.1f", b-a}')
+    if awk -v w="$waited" -v m="$SCAN_WAIT_MAX" 'BEGIN{exit !(w >= m)}'; then
+      echo "P22_SCANWAIT $tag timeout ${waited}s (scan still in progress; row not blocked)" | tee -a "$OUT/scanwait.txt"
+      SCAN_WAIT_TOTAL=$(awk -v a="$SCAN_WAIT_TOTAL" -v w="$waited" 'BEGIN{printf "%.1f", a+w}')
+      return 1
+    fi
+    sleep 0.2
+  done
+  waited=$(awk -v a="$t0" -v b="$(date +%s.%N)" 'BEGIN{printf "%.1f", b-a}')
+  echo "P22_SCANWAIT $tag ${waited}s" >>"$OUT/scanwait.txt"
+  SCAN_WAIT_TOTAL=$(awk -v a="$SCAN_WAIT_TOTAL" -v w="$waited" 'BEGIN{printf "%.1f", a+w}')
+  return 0
+}
+
+# BENCH-only evidence per row (never pass/fail): power_save, Wi-Fi rfkill block,
+# whether the GNOME Settings Wi-Fi panel process runs, scan events during the row.
+# The GNOME quick-settings Wi-Fi menu has no process of its own and is not detectable.
+bench_state() {
+  local ps rf gcc
+  ps=$(iw dev "$WLX" get power_save 2>/dev/null | awk '{print $NF}')
+  rf=$(rfkill list 2>/dev/null | awk '/^[0-9]+:/{w=($NF=="LAN")} w&&/Soft blocked: yes|Hard blocked: yes/{b=1} END{print b?"blocked":"no"}')
+  gcc=$(pgrep -f gnome-control-center >/dev/null 2>&1 && echo yes || echo no)
+  echo "${ps:-NA} ${rf} ${gcc}"
+}
+echo -e "row\tps_start\tps_end\twifi_rfkill_start\twifi_rfkill_end\tgnome_control_center_start\tgnome_control_center_end\tscan_events_in_row\tscan_wait_s" >"$OUT/bench-rows.tsv"
 row() {
+  local b0 b1 l0 l1 nscan w0
   txwd_snap "$1 before"
+  w0=$SCAN_WAIT_TOTAL
+  wait_scan_idle "$1-start" || true
+  b0=$(bench_state); l0=$(wc -l <"$SCAN_LOG" 2>/dev/null || echo 0)
   "$1"
+  b1=$(bench_state); l1=$(wc -l <"$SCAN_LOG" 2>/dev/null || echo 0)
+  nscan=$(sed -n "$((l0+1)),${l1}p" "$SCAN_LOG" 2>/dev/null | grep -cE ": $WLX .*: scan (started|finished|aborted)" || true)
+  set -- "$1" $b0 $b1
+  echo -e "$1\t$2\t$5\t$3\t$6\t$4\t$7\t${nscan:-0}\t$(awk -v a="$SCAN_WAIT_TOTAL" -v b="$w0" 'BEGIN{printf "%.1f", a-b}')" >>"$OUT/bench-rows.tsv"
   txwd_snap "$1 after"
 }
 
