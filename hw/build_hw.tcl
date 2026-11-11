@@ -260,8 +260,9 @@ proc hw::main {} {
     file delete -force $::hw::build
   }
   file mkdir $::hw::build $::hw::build/logs $::hw::build/stamps $::hw::build/out
-  hw::reject_host_paths
+  # The host-path guard reads HOST_PATH_GUARD from config/local.conf.
   hw::load_config
+  hw::reject_host_paths
   if {$::hw::sim ne ""} {
     hw::stage_sim $::hw::sim
     return

@@ -8,8 +8,30 @@ are not vendored in this tree. This file is an inventory of the recipes and
 patches here, not the output of a license scanner, and it does not copy the
 upstream license texts.
 
-OpenWiFi sources are taken from open-sdr/openwifi revision
-`75ab6fe3380d44e42de34592c106e755a3c3476a`.
+OpenWiFi sources come from the port branch `adrv9361z7035-2025.1` of
+open-sdr/openwifi, based on upstream `f6674ee`. Release v1.2 uses
+`08827d58b23ea8c2300279196274a7a6174a4a1b` (`OPENWIFI_REV` in
+`config/versions.conf`). The FPGA design comes from the same branch of
+open-sdr/openwifi-hw at `49e8ceb4fc3ef6d0ccd4f1db2d3e9855962f153e`, based on
+upstream `d047d79`. Both are AGPL-3.0 with the upstream dual-licence note
+(commercial licences from openwifi.tech).
+
+## FPGA images and the Viterbi Decoder
+
+The FPGA design instantiates the AMD/Xilinx Viterbi Decoder LogiCORE IP. This
+IP is licensed per user by AMD and is not open source. Building the bitstream
+needs a Vivado installation with a Viterbi Decoder licence: either the
+evaluation licence, which upstream openwifi uses and which halts the decoder
+after about 2 hours, or a full licence.
+
+Bitstream-containing files (`system.bit`, `BOOT.BIN`, the WIC image, the XSA)
+are not distributed with the v1.2 release. Distributing them depends on the
+terms of the AMD Core License Agreement for the Viterbi Decoder. Build them
+locally with `./build.sh all`. This tree contains no AMD IP source, netlist or
+bitstream: the IP is generated from the Vivado installation at build time. The
+port commits in openwifi-hw add none either. The openwifi-hw history inherited
+from upstream open-sdr/openwifi-hw keeps upstream's own IP configuration files
+(`.xci`) and prebuilt bitstreams for other boards, as upstream publishes them.
 
 ## Recipes
 

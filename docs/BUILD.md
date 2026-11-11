@@ -1,8 +1,16 @@
 # Build
 
-Requirements: Vivado, Vitis and PetaLinux 2025.1, the pinned git checkouts
-named in `config/local.conf`, and shared `DL_DIR` / `SSTATE_DIR` if you do
-not want a cold Yocto download.
+Requirements: Vivado, Vitis and PetaLinux 2025.1 (with a Viterbi Decoder
+licence, see `LICENSES.md`), and shared `DL_DIR` / `SSTATE_DIR` if you do not
+want a cold Yocto download.
+
+The sources are fetched at the revisions pinned in `config/versions.conf`
+from the URLs in the same file: the port branches of openwifi and openwifi-hw,
+ADI hdl, openofdm and meta-adi. To build from a local clone instead, set its
+path in `config/local.conf` (`OPENWIFI_REPO`, `OPENWIFI_HW_REPO`,
+`ADI_HDL_REPO`, `OPENOFDM_RX_REPO`, `META_ADI_DIR`). A local clone must
+contain the pinned revision. `HOST_PATH_GUARD` in `config/local.conf` lists
+host path prefixes that the hw build must never find in its sources.
 
 ```
 cp config/local.conf.example config/local.conf

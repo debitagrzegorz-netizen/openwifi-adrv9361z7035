@@ -7,9 +7,17 @@ proc hw::fail {msg} {
   error "P24_HW_FAIL $msg"
 }
 
-# Needles are assembled at runtime so this tree does not store a host path.
+# Host path prefixes that must never appear in the hw sources or in the patched
+# IP scripts. They are host-specific, so they come from HOST_PATH_GUARD in
+# config/local.conf (space-separated, not tracked). This tree stores none.
 proc hw::banned_needles {} {
-  return [list [file join / dysk] [file join / home grzegorz]]
+  set needles {}
+  foreach needle [hw::cfg_get HOST_PATH_GUARD] {
+    if {$needle ne ""} {
+      lappend needles $needle
+    }
+  }
+  return $needles
 }
 
 proc hw::body_has_banned_path {body} {

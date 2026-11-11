@@ -56,6 +56,8 @@ fi
 source "$ROOT/config/versions.conf"
 # shellcheck disable=SC1091
 source "$ROOT/config/local.conf"
+# meta-adi defaults to a clone made by the fetch stage.
+META_ADI_DIR=${META_ADI_DIR:-$ROOT/build/src/meta-adi}
 
 LOG=$ROOT/build/logs
 STATUS=$LOG/status.txt
@@ -167,27 +169,39 @@ stage_fetch() {
   need META_ADI_DIR
   need DL_DIR
   need SSTATE_DIR
-  git -C "$OPENWIFI_REPO" cat-file -e "${OPENWIFI_REV}^{commit}"
+  if [ -d "$OPENWIFI_REPO" ]; then
+    git -C "$OPENWIFI_REPO" cat-file -e "${OPENWIFI_REV}^{commit}"
+  fi
+  if [ ! -d "$META_ADI_DIR/.git" ]; then
+    need META_ADI_REPO
+    git clone "$META_ADI_REPO" "$META_ADI_DIR"
+    git -C "$META_ADI_DIR" checkout --detach "$META_ADI_REV"
+  fi
   local head
   head=$(git -C "$META_ADI_DIR" rev-parse HEAD)
   [ "$head" = "$META_ADI_REV" ] || die "meta-adi HEAD $head != $META_ADI_REV"
   [ -f "$META_ADI_DIR/meta-adi-xilinx/conf/layer.conf" ] || die "meta-adi-xilinx layer.conf missing"
-  if [ -n "${OPENWIFI_HW_REPO:-}" ]; then
+  if [ -d "${OPENWIFI_HW_REPO:-}" ]; then
     head=$(git --git-dir="$OPENWIFI_HW_REPO/.git" rev-parse HEAD)
     [ "$head" = "$OPENWIFI_HW_REV" ] || die "openwifi-hw HEAD $head != $OPENWIFI_HW_REV"
   fi
-  if [ -n "${ADI_HDL_REPO:-}" ]; then
+  if [ -d "${ADI_HDL_REPO:-}" ]; then
     head=$(git -C "$ADI_HDL_REPO" rev-parse HEAD)
     [ "$head" = "$ADI_HDL_REV" ] || die "hdl HEAD $head != $ADI_HDL_REV"
   fi
-  if [ -n "${OPENOFDM_RX_REPO:-}" ]; then
+  if [ -d "${OPENOFDM_RX_REPO:-}" ]; then
     head=$(git -C "$OPENOFDM_RX_REPO" rev-parse HEAD)
     [ "$head" = "$OPENOFDM_RX_REV" ] || die "openofdm_rx HEAD $head != $OPENOFDM_RX_REV"
   fi
   local dest=$ROOT/build/src/openwifi
   if [ ! -d "$dest/.git" ]; then
-    git clone --local "$OPENWIFI_REPO" "$dest"
+    if [ -d "$OPENWIFI_REPO" ]; then
+      git clone --local "$OPENWIFI_REPO" "$dest"
+    else
+      git clone "$OPENWIFI_REPO" "$dest"
+    fi
   fi
+  git -C "$dest" cat-file -e "${OPENWIFI_REV}^{commit}"
   git -C "$dest" checkout -B "$OPENWIFI_BRANCH" "$OPENWIFI_REV"
   git -C "$dest" rev-parse HEAD
   echo "fetch ok"
