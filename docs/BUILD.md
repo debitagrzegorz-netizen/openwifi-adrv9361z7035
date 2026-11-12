@@ -106,18 +106,19 @@ Image gates:
 4. `sdr.ko` vermagic matches the kernel release.
 5. The rootfs contains the openwifi packages and the files `wgd.sh` needs, including `/etc/openwifi-build-info`.
 
-## Pinned kernel and libiio
+## Pinned kernel, libiio and pyadi-iio
 
-meta-adi builds the ADI kernel (`linux-xlnx`) and libiio with
+meta-adi builds the ADI kernel (`linux-xlnx`), libiio and pyadi-iio with
 `SRCREV = "${AUTOREV}"`. Without a pin, two builds a day apart can get
 different kernels. The build is reproducible only with the pins in
 `config/versions.conf`:
 
 - `LINUX_ADI_REV`, the ADI Linux commit,
-- `LIBIIO_REV`, the libiio commit.
+- `LIBIIO_REV`, the libiio commit,
+- `PYADI_IIO_REV`, the pyadi-iio commit.
 
-`build.sh` writes both into the PetaLinux BSP configuration, and the
-`meta-openwifi` bbappends apply them. Both values are recorded in
+`build.sh` writes them into the PetaLinux BSP configuration, and the
+`meta-openwifi` bbappends apply them. All three values are recorded in
 `build/images/build-info.json` and in `/etc/openwifi-build-info` on the
 target.
 

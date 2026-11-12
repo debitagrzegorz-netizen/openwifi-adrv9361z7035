@@ -217,6 +217,7 @@ openofdm_rx_srcrev=${OPENOFDM_RX_REV}
 meta_adi_srcrev=${META_ADI_REV}
 linux_adi_srcrev=${LINUX_ADI_REV}
 libiio_srcrev=${LIBIIO_REV}
+pyadi_iio_srcrev=${PYADI_IIO_REV}
 xsa_sha256=${OPENWIFI_XSA_SHA256}
 bitstream_sha256=${bit}
 tool_version=${OPENWIFI_TOOL_VERSION}

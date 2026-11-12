@@ -257,6 +257,7 @@ OPENOFDM_RX_REV = "$OPENOFDM_RX_REV"
 META_ADI_REV = "$META_ADI_REV"
 LINUX_ADI_REV = "$LINUX_ADI_REV"
 LIBIIO_REV = "$LIBIIO_REV"
+PYADI_IIO_REV = "$PYADI_IIO_REV"
 OPENWIFI_XSA_SHA256 = "$(xsa_expected_sha)"
 OPENWIFI_TOOL_VERSION = "$TOOL_VERSION"
 DL_DIR = "$DL_DIR"
@@ -483,6 +484,7 @@ info = {
   "meta_adi": "$META_ADI_REV",
   "linux_adi": "$LINUX_ADI_REV",
   "libiio": "$LIBIIO_REV",
+  "pyadi_iio": "$PYADI_IIO_REV",
   "tool": "$TOOL_VERSION",
   "xsa_sha256": "$(xsa_expected_sha)",
   "board": "$BOARD",
