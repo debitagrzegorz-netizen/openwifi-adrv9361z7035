@@ -128,3 +128,34 @@ To bump a pin on purpose:
 2. Run `./build.sh all` from a clean clone.
 3. Check that `sdr.ko` vermagic matches the new kernel (image gate 4).
 4. Run the full matrix (`docs/TESTING.md`) and the soak before you tag.
+
+## Bitstream reproducibility
+
+Vivado 2025.1 routing is not fully deterministic from run to run, even on
+the same inputs. In the v1.2.1 validation, 1 of 8 routes of the same placed
+design came out different. The other 7 produced configuration frames
+identical to the v1.2 release.
+
+- Usually your bitstream has the same configuration frames as the v1.2
+  release.
+- A different routing is still valid if timing is met. The variant seen in
+  testing had WNS 0.552 ns and WHS 0.013 ns, the same as v1.2. It passed
+  every on-air gate row, a 2 × 30 min TCP soak and the side-channel rows
+  F16/F17.
+- USR_ACCESS holds the first 8 hex digits of the impl-stage input hash. It
+  is written after routing, so it identifies the build inputs, not the
+  routing. Two builds of the same inputs have the same USR_ACCESS. A build of
+  different inputs (for example a different clone URL or `config.tcl`) has
+  a different USR_ACCESS even when the frames are identical.
+
+To compare two bitstreams, compare the configuration frames only:
+
+1. Skip the header up to the sync word `AA 99 55 66`.
+2. Find the FDRI write (type-1 header `30 00 40 00`, followed by a type-2
+   word count). The configuration frames are that many 32-bit words.
+3. Compare those words. Outside the frames, the AXSS (USR_ACCESS) write
+   (header `30 01 A0 01`) and the CRC write that follows it differ whenever
+   USR_ACCESS differs. Ignore both.
+
+Equal frames mean an identical design on the device. Timing reports and the
+image gates check the rest.

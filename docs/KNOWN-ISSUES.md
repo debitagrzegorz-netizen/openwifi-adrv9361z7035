@@ -25,14 +25,26 @@ TX interrupt arrived (about one per 1.5 h of continuous TCP).
 
 ## CSI and IQ capture (F16, F17) — open, planned for v1.3
 
-On Ubuntu 22.04 (v1.1 and v1.2) both rows failed with `arrivals=0`: the RF
-source was not heard before the capture was armed, so no frames were
-captured. On the Ubuntu 24.04 bench with the kernel 7.0 harness, both rows
-passed in both release matrices (F16 `arrivals=2` and 2, F17 `arrivals=11`
-and 2). The cause of the change is not known. Candidates are the harness
-changes in `d3d0131` (the client joins at 5 dBm, the scan-idle wait, the
-monitor-mode step) or bench conditions. The rows stay an open item until
-the result is reproduced and explained.
+The result depends on what ran before the side-channel rows, not on the
+bitstream.
+
+- **In isolation both rows pass on both bitstreams.** F16 and F17 alone,
+  alternating between the v1.2 release bitstream and an alternative routing
+  of the same design (production, alternative, production, alternative):
+  4/4 PASS each, with 27–28 RX interrupts in the capture window.
+- **At the end of the full row list they can fail.** When side_ch runs after
+  F5–F11, few or no frames arrive (`arrivals` ≤ 2), and F16 receives too few
+  CSI datagrams or F17 hears no RF source before the capture is armed. This
+  happened twice in two full lists on the alternative routing. The release
+  matrices on the v1.2 bitstream passed in the same position with 2–11
+  arrivals, which is barely above the limit.
+- **Earlier history.** On Ubuntu 22.04 (v1.1 and v1.2) both rows failed
+  with `arrivals=0`. On the Ubuntu 24.04 bench with the kernel 7.0 harness
+  they passed in both release matrices.
+
+The cause is open. Candidates are the state the earlier rows leave behind:
+the test radio after the monitor and injection rows, or the RF source used
+for capture. The rows stay an open item for v1.3.
 
 ## Other issues
 

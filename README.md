@@ -6,8 +6,10 @@ ADRV9361-Z7035 SOM on the ADRV1CRR-BOB carrier. It is built with AMD Vivado
 and PetaLinux 2025.1. One command builds the FPGA and the Linux SD-card image
 from sources.
 
-Current release: **v1.2** (`docs/RELEASE-v1.2.md`). Previous release: v1.1
-(`docs/RELEASE-v1.1.md`).
+Current release: **v1.2.1** (`docs/RELEASE-v1.2.1.md`): v1.2 plus the
+published-build glue, the pyadi-iio pin and documentation. The image content
+and the FPGA design are those of **v1.2** (`docs/RELEASE-v1.2.md`). Previous
+release: v1.1 (`docs/RELEASE-v1.1.md`).
 
 > These repositories are private until the owner publishes them.
 
